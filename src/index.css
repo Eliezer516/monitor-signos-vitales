@@ -1,0 +1,120 @@
+@import 'tailwindcss';
+
+/* Tokens de color: se redefinen en el bloque .dark para el modo oscuro.
+   Usar variables permite que todo el tema cambie sin condicionales en JSX. */
+@theme {
+  --color-superficie: #ffffff;
+  --color-superficie-2: #f6f7f9;
+  --color-superficie-3: #eceff3;
+  --color-borde: #e3e7ec;
+  --color-texto: #0f172a;
+  --color-texto-suave: #64748b;
+  --color-marca: #2563eb;
+  --color-marca-suave: #eff4ff;
+  --color-ok: #16a34a;
+  --color-ok-suave: #ecfdf3;
+  --color-aviso: #d97706;
+  --color-aviso-suave: #fffbeb;
+  --color-alerta: #dc2626;
+  --color-alerta-suave: #fef2f2;
+
+  --font-sans:
+    'Inter var', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+
+  --radius-card: 1rem;
+}
+
+@layer base {
+  .dark {
+    --color-superficie: #0b1220;
+    --color-superficie-2: #131c2e;
+    --color-superficie-3: #1c2740;
+    --color-borde: #24314b;
+    --color-texto: #e8edf5;
+    --color-texto-suave: #94a3b8;
+    --color-marca: #60a5fa;
+    --color-marca-suave: #16233d;
+    --color-ok: #4ade80;
+    --color-ok-suave: #10241a;
+    --color-aviso: #fbbf24;
+    --color-aviso-suave: #2a2110;
+    --color-alerta: #f87171;
+    --color-alerta-suave: #2c1414;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* Evita el zoom automatico de iOS al enfocar un input con fuente <16px. */
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-superficie-2 text-texto font-sans antialiased;
+    /* Safe areas para iPhone con gesto inferior. */
+    padding-bottom: env(safe-area-inset-bottom);
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+
+  /* Los inputs usan 16px en movil para que iOS no haga zoom al enfocar. */
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  /* Respetar la preferencia de menos animaciones. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Tarjeta base compartida por resumenes, formularios y reportes. */
+  .tarjeta {
+    @apply bg-superficie border border-borde rounded-2xl;
+  }
+
+  /* Foco visible solo por teclado, nunca en puntero. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-marca;
+  }
+}
+
+/* Al imprimir (exportar a PDF desde el navegador) solo sale el reporte. */
+@media print {
+  body {
+    background: #fff;
+  }
+  .no-imprimir {
+    display: none !important;
+  }
+  .solo-imprimir {
+    display: block !important;
+  }
+  .imprimir-salto {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .tarjeta {
+    border-color: #d4dae2 !important;
+    box-shadow: none !important;
+  }
+}

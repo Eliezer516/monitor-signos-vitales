@@ -1,0 +1,54 @@
+{
+  "name": "Signos Vitales - Control del paciente",
+  "short_name": "Signos Vitales",
+  "description": "Registro y monitoreo de signos vitales y orina del paciente",
+  "lang": "es",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7f9",
+  "theme_color": "#2563eb",
+  "categories": ["health", "medical", "utilities"],
+  "icons": [
+    {
+      "src": "/icono.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icono-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icono-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icono-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Registrar medicion",
+      "short_name": "Registrar",
+      "description": "Abrir el formulario de registro",
+      "url": "/#/registrar"
+    },
+    {
+      "name": "Graficas",
+      "short_name": "Graficas",
+      "description": "Ver tendencias",
+      "url": "/#/graficas"
+    }
+  ]
+}
