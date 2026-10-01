@@ -22,6 +22,7 @@ import {
   evaluarSis,
   redondear,
 } from './rangos'
+import { hora12 } from './fechas'
 import type {
   Alerta,
   FechaISO,
@@ -227,7 +228,9 @@ export function alertasDelDia(
 
   // Valores criticos en registros individuales (solo los 3 mas recientes).
   for (const r of [...rs].reverse().slice(0, 3)) {
-    const hora = r.hora
+    // En 12 horas: es un texto para leer de un vistazo, y quien lo lee no
+    // deberia tener que convertir la hora mentalmente.
+    const hora = hora12(r.hora)
     if (r.presionSis < u.presionSisMin || r.presionSis > u.presionSisMax) {
       alertas.push({
         id: `ps-${r.id}`,

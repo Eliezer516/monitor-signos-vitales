@@ -9,16 +9,21 @@
  * Los datos de salud nunca salen del dispositivo: no hay backend ni Analytic.
  */
 
-import type { Ajustes, Paciente, Registro } from './tipos'
+import type { Ajustes, Paciente, Registro, Visita } from './tipos'
 import { AJUSTES_POR_DEFECTO } from './rangos'
 import { claveDia } from './fechas'
 
 const DB_NOMBRE = 'signos-vitales'
-const DB_VERSION = 1
+// v2: se anade el store de visitas. La v1 no lo tenia; `onupgradeneeded` crea
+// el store nuevo sin tocar los existentes, de modo que los datos ya guardados
+// sobreviven a la actualizacion.
+const DB_VERSION = 2
 const STORE_REGISTROS = 'registros'
+const STORE_VISITAS = 'visitas'
 const STORE_CLAVE = 'clave-valor'
 
 const LS_REGISTROS = 'msv:registros'
+const LS_VISITAS = 'msv:visitas'
 const LS_AJUSTES = 'msv:ajustes'
 const LS_PACIENTES = 'msv:pacientes'
 
@@ -68,6 +73,11 @@ function abrirDB(): Promise<IDBDatabase | null> {
         if (!db.objectStoreNames.contains(STORE_REGISTROS)) {
           const store = db.createObjectStore(STORE_REGISTROS, { keyPath: 'id' })
           // Indices para consultas por dia y por paciente sin recorrer todo.
+          store.createIndex('fecha', 'fecha')
+          store.createIndex('createdAt', 'createdAt')
+        }
+        if (!db.objectStoreNames.contains(STORE_VISITAS)) {
+          const store = db.createObjectStore(STORE_VISITAS, { keyPath: 'id' })
           store.createIndex('fecha', 'fecha')
           store.createIndex('createdAt', 'createdAt')
         }
@@ -141,20 +151,68 @@ export async function cargarRegistros(): Promise<Registro[]> {
  */
 export async function guardarRegistros(registros: Registro[]): Promise<void> {
   escribir(LS_REGISTROS, registros)
+  await guardarLista(STORE_REGISTROS, registros)
+}
+
+// ---------------------------------------------------------------------------
+// Visitas
+// ---------------------------------------------------------------------------
+
+/** Carga las visitas, de IndexedDB o del espejo en localStorage. */
+export async function cargarVisitas(): Promise<Visita[]> {
+  const db = await abrirDB()
+  if (db) {
+    try {
+      const visitas = await transaccion<Visita[]>(db, STORE_VISITAS, 'readonly', (s) => s.getAll())
+      const espejo = leer<Visita[]>(LS_VISITAS)
+      if (espejo && espejo.length > visitas.length) {
+        void guardarVisitas(espejo)
+        return ordenarVisitas(espejo)
+      }
+      return ordenarVisitas(visitas)
+    } catch {
+      // Si IndexedDB falla a mitad, usamos el espejo.
+    }
+  }
+  return ordenarVisitas(leer<Visita[]>(LS_VISITAS) ?? [])
+}
+
+export async function guardarVisitas(visitas: Visita[]): Promise<void> {
+  escribir(LS_VISITAS, visitas)
+  await guardarLista(STORE_VISITAS, visitas)
+}
+
+/**
+ * Ordena por fecha y hora descendentes: lo mas reciente primero.
+ *
+ * Una visita sin hora queda al final de su dia, no al principio: se esta
+ * ordenando de lo mas reciente a lo mas antiguo y no consta cuando ocurrio, asi
+ * que se coloca donde menos implica que fue lo primero que paso.
+ */
+export function ordenarVisitas(visitas: Visita[]): Visita[] {
+  return [...visitas].sort((a, b) =>
+    a.fecha === b.fecha
+      ? (b.hora ?? '').localeCompare(a.hora ?? '')
+      : b.fecha.localeCompare(a.fecha),
+  )
+}
+
+/** Reescribe un store completo: primero se limpia y luego se inserta cada fila. */
+async function guardarLista<T>(store: string, filas: T[]): Promise<void> {
   const db = await abrirDB()
   if (!db) return
   try {
-    const tx = db.transaction(STORE_REGISTROS, 'readwrite')
-    const store = tx.objectStore(STORE_REGISTROS)
-    store.clear()
-    for (const r of registros) store.put(r)
+    const tx = db.transaction(store, 'readwrite')
+    const s = tx.objectStore(store)
+    s.clear()
+    for (const fila of filas) s.put(fila)
     await new Promise<void>((resolve) => {
       tx.oncomplete = () => resolve()
       tx.onerror = () => resolve()
       tx.onabort = () => resolve()
     })
   } catch {
-    // El espejo en localStorage ya guarantees que no se pierdan datos.
+    // El espejo en localStorage ya garantiza que no se pierdan datos.
   }
 }
 

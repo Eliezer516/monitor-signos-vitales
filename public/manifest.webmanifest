@@ -49,6 +49,12 @@
       "short_name": "Graficas",
       "description": "Ver tendencias",
       "url": "/#/graficas"
+    },
+    {
+      "name": "Registrar visita",
+      "short_name": "Visita",
+      "description": "Anotar una consulta o visita a domicilio",
+      "url": "/#/visitas"
     }
   ]
 }

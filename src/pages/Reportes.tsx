@@ -10,6 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
+import { useVisitas } from '../context/ContextoVisitas'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useAvisos } from '../components/Avisos'
 import {
@@ -20,9 +21,10 @@ import {
   resumenDia,
   resumenSemana,
 } from '../lib/resumen'
-import { claveDia, fechaCompleta, fechaCorta, inicioSemana, sumarDias } from '../lib/fechas'
+import { claveDia, fechaCompleta, fechaCorta, hora12, inicioSemana, sumarDias } from '../lib/fechas'
 import { compartirReporte, imprimirReporte, reporteHTML } from '../lib/exportar'
-import type { Periodo, Registro, Umbrales } from '../lib/tipos'
+import { ETIQUETA_CORTA } from '../lib/visitas'
+import type { Periodo, Registro, Umbrales, Visita } from '../lib/tipos'
 import { ListaMediciones, PanelAlertas, ResumenDiaFila, n } from '../components/Resumen'
 import { Boton, Segmentado, Tarjeta, Vacio, cx } from '../components/UI'
 import {
@@ -46,6 +48,7 @@ const VISTAS: { valor: Vista; etiqueta: string }[] = [
 
 export function PaginaReportes() {
   const { registros } = useRegistros()
+  const { visitas } = useVisitas()
   const { ajustes, paciente, presionHabitual } = useAjustes()
   const { aviso } = useAvisos()
 
@@ -68,24 +71,35 @@ export function PaginaReportes() {
     return { desde: sumarDias(hoy, -(largo - 1)), hasta: hoy }
   }, [vista, dia, periodo, hoy])
 
-  const registrosPeriodo = useMemo(
+const registrosPeriodo = useMemo(
     () => registros.filter((r) => r.fecha >= desde && r.fecha <= hasta),
     [registros, desde, hasta],
   )
 
-  if (!registros.length) {
+  // Las visitas del mismo periodo se pasan al reporte: el medico necesita ver
+  // tambien lo que se decidio en las consultas de esos dias.
+  const visitasPeriodo = useMemo(
+    () => visitas.filter((v) => v.fecha >= desde && v.fecha <= hasta),
+    [visitas, desde, hasta],
+  )
+
+// Se sale solo si no hay nada de nada: tener visitas pero no mediciones tambien
+  // permite generar informe, y es el caso tipico cuando se ajusta el tratamiento.
+  if (!registros.length && !visitas.length) {
     return (
       <Vacio
         icono={<IconoReporte width={36} height={36} />}
         titulo="Sin datos para el reporte"
-        descripcion="Los reportes se generan automaticamente a partir de los registros."
+        descripcion="Los reportes se generan automaticamente a partir de los registros y las visitas."
       />
     )
   }
 
-  const generarReporte = () => {
-    if (!registrosPeriodo.length) {
-      aviso('No hay registros en este periodo', 'error')
+const generarReporte = () => {
+    // Un periodo puede tener visitas sin mediciones, y el informe sigue siendo
+    // util: es justo el caso de un paciente al que le ajustan el tratamiento.
+    if (!registrosPeriodo.length && !visitasPeriodo.length) {
+      aviso('No hay datos en este periodo', 'error')
       return
     }
     const html = reporteHTML(registrosPeriodo, {
@@ -94,6 +108,7 @@ export function PaginaReportes() {
       hasta,
       umbral: ajustes.umbral,
       presionHabitual,
+      visitas: visitasPeriodo,
     })
     if (!imprimirReporte(html)) {
       aviso('El navegador bloqueo la ventana de impresion', 'error')
@@ -102,13 +117,18 @@ export function PaginaReportes() {
     aviso('Reporte generado. Elige "Guardar como PDF"')
   }
 
-  const compartir = async () => {
+const compartir = async () => {
+    if (!registrosPeriodo.length && !visitasPeriodo.length) {
+      aviso('No hay datos en este periodo', 'error')
+      return
+    }
     const html = reporteHTML(registrosPeriodo, {
       paciente: paciente ?? undefined,
       desde,
       hasta,
       umbral: ajustes.umbral,
       presionHabitual,
+      visitas: visitasPeriodo,
     })
     const resultado = await compartirReporte(html, `reporte-${desde}-${hasta}`)
     if (resultado === 'no-soportado') {
@@ -125,7 +145,12 @@ export function PaginaReportes() {
           <Calendario
             valor={dia}
             onChange={setDia}
-            diasConDatos={new Set(registros.map((r) => r.fecha))}
+            diasConDatos={new Set([
+                ...registros.map((r) => r.fecha),
+                // Los dias con visita se marcan tambien: si no, el calendario
+                // pareceria un dia en blanco cuando lo que hay es una consulta.
+                ...visitas.map((v) => v.fecha),
+              ])}
           />
         )}
 
@@ -179,9 +204,10 @@ export function PaginaReportes() {
       </Tarjeta>
 
       {vista === 'diario' && (
-        <ReporteDiario
+<ReporteDiario
           fecha={dia}
           registros={registrosPeriodo}
+          visitas={visitasPeriodo}
           esHoy={dia === hoy}
           umbral={ajustes.umbral}
         />
@@ -199,11 +225,13 @@ export function PaginaReportes() {
 function ReporteDiario({
   fecha,
   registros,
+  visitas,
   esHoy,
   umbral,
 }: {
   fecha: string
   registros: Registro[]
+  visitas: Visita[]
   esHoy: boolean
   umbral: Umbrales
 }) {
@@ -235,6 +263,47 @@ function ReporteDiario({
         </Tarjeta>
       )}
 
+{visitas.length > 0 && (
+        <Tarjeta className="space-y-3">
+          <h3 className="text-sm font-semibold text-texto">Visitas del dia</h3>
+          <ul className="space-y-2">
+            {visitas.map((v) => {
+              const domicilio = v.tipo === 'domicilio'
+              return (
+                <li
+                  key={v.id}
+                  className="rounded-xl border border-borde bg-superficie-2 p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-medium text-texto">{v.motivo}</span>
+                    <span
+                      className={cx(
+                        'rounded-full px-2 py-0.5 text-xs font-medium',
+                        domicilio ? 'bg-aviso-suave text-aviso' : 'bg-marca-suave text-marca',
+                      )}
+                    >
+                      {ETIQUETA_CORTA[v.tipo]}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-texto-suave">
+                    {hora12(v.hora) ? `A las ${hora12(v.hora)}` : 'Hora no consta'}
+                    {v.profesional && ` · ${v.profesional}`}
+                  </p>
+                  {v.indicaciones && (
+                    <p className="mt-2 whitespace-pre-line rounded-lg bg-ok-suave px-2.5 py-1.5 text-xs text-ok">
+                      {v.indicaciones}
+                    </p>
+                  )}
+                  {v.notas && (
+                    <p className="mt-1.5 whitespace-pre-line text-xs text-texto-suave">{v.notas}</p>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </Tarjeta>
+      )}
+
       <Tarjeta className="space-y-3">
         <h3 className="text-sm font-semibold text-texto">Detalle de mediciones</h3>
         <ListaMediciones registros={resumen.registros} umbral={umbral} habitual={presionHabitual} />
@@ -249,8 +318,15 @@ function ReporteDiario({
 
 function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
   const { registros } = useRegistros()
+  const { visitas } = useVisitas()
   const dias = useMemo(() => resumenSemana(registros, dia), [registros, dia])
   const diasConDatos = dias.filter((d) => d.registros.length > 0)
+
+  const lunes = inicioSemana(dia)
+  const visitasSemana = useMemo(
+    () => visitas.filter((v) => v.fecha >= lunes && v.fecha <= sumarDias(lunes, 6)),
+    [visitas, lunes],
+  )
 
   const totalOrina = dias.reduce((a, d) => a + d.totalOrina, 0)
   const mediaDiaria = diasConDatos.length ? Math.round(totalOrina / diasConDatos.length) : 0
@@ -329,6 +405,35 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
           </table>
         </div>
       </Tarjeta>
+
+{visitasSemana.length > 0 && (
+        <Tarjeta className="space-y-3">
+          <h3 className="text-sm font-semibold text-texto">Visitas de la semana</h3>
+          <ul className="space-y-2">
+            {visitasSemana.map((v) => (
+              <li key={v.id} className="border-b border-borde/60 pb-2 last:border-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-xs text-texto-suave">{fechaCorta(v.fecha)}</span>
+                  <span className="font-medium text-texto">{v.motivo}</span>
+                  <span
+                    className={cx(
+                      'rounded-full px-2 py-0.5 text-xs font-medium',
+                      v.tipo === 'domicilio'
+                        ? 'bg-aviso-suave text-aviso'
+                        : 'bg-marca-suave text-marca',
+                    )}
+                  >
+                    {ETIQUETA_CORTA[v.tipo]}
+                  </span>
+                </div>
+                {v.indicaciones && (
+                  <p className="mt-1 whitespace-pre-line text-xs text-texto-suave">{v.indicaciones}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Tarjeta>
+      )}
 
       <Tarjeta className="space-y-3">
         <h3 className="text-sm font-semibold text-texto">Medicamentos y actividades</h3>

@@ -78,6 +78,48 @@ export function Boton({
 }
 
 // ---------------------------------------------------------------------------
+// Boton flotante
+// ---------------------------------------------------------------------------
+
+/**
+ * Accion principal fijada en la esquina inferior derecha.
+ *
+ * En movil queda por encima de la barra de navegacion y suma el margen del
+ * dispositivo con `env(safe-area-inset-bottom)`, para no quedar tapado por la
+ * barra del sistema ni por el gesto de inicio.
+ *
+ * No arrastra el contenido: quien lo use debe dejar un `padding-bottom` en la
+ * pagina para que el ultimo elemento se pueda dejar debajo al hacer scroll.
+ *
+ * Se marca `no-imprimir` porque no sirve de nada en un papel y en el informe
+ * tirado por el navegador ocuparia la esquina de la hoja.
+ */
+export function BotonFlotante({
+  icono,
+  children,
+  className,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { icono: ReactNode }) {
+  return (
+    <button
+      className={cx(
+        'no-imprimir fixed right-4 z-30 lg:right-6',
+        'bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] lg:bottom-6',
+        'inline-flex min-h-14 items-center justify-center gap-2 rounded-full',
+        'bg-marca px-5 text-base font-semibold text-white',
+        'shadow-lg shadow-marca/25 ring-1 ring-marca/40 transition',
+        'hover:brightness-105 active:scale-[0.97]',
+        className,
+      )}
+      {...props}
+    >
+      {icono}
+      {children}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Campos de formulario
 // ---------------------------------------------------------------------------
 

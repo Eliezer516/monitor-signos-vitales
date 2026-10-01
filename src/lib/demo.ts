@@ -14,7 +14,7 @@
  * forma reconocible.
  */
 
-import type { Registro } from './tipos'
+import type { Registro, Visita } from './tipos'
 import { claveDia, sumarDias } from './fechas'
 import { nuevoId } from './db'
 
@@ -73,4 +73,62 @@ export function crearRegistrosDemo(base = new Date()): Registro[] {
   }
 
   return registros
+}
+
+/**
+ * Visitas de ejemplo: cuatro a lo largo de seis semanas.
+ *
+ * Mezcla consultas y visitas a domicilio a proposito, e incluye cambios de
+ * tratamiento para que se vea como queda el informe cuando las indicaciones
+ * importan mas que los numeros.
+ */
+export function crearVisitasDemo(base = new Date()): Visita[] {
+  const hoy = claveDia(base)
+  const hace = (dias: number) => sumarDias(hoy, -dias)
+
+  const visitas: Omit<Visita, 'id' | 'createdAt' | 'ejemplo'>[] = [
+    {
+      fecha: hace(42),
+      hora: '10:15',
+      tipo: 'consulta',
+      motivo: 'Revision de la tension y de la medicacion',
+      profesional: 'Dra. Garcia, Centro de salud',
+      indicaciones: 'Continuar furosemida 40 mg por la manana. Anadir amlodipino 5 mg por la noche.',
+      notas: 'Analiticas pedidas: urea, creatinina e iones. Revisar en 3 meses.',
+    },
+    {
+      fecha: hace(28),
+      hora: '',
+      tipo: 'domicilio',
+      motivo: 'Caida en la noche',
+      profesional: 'Enfermeria del centro',
+      indicaciones: 'Levantarse despacio. Revision de la toma de la tablet de la tarde.',
+      notas: 'No se roto nada. Dormia mal desde hacia dos dias.',
+    },
+    {
+      fecha: hace(14),
+      hora: '09:30',
+      tipo: 'consulta',
+      motivo: 'Revision de tension baja',
+      profesional: 'Dra. Garcia, Centro de salud',
+      indicaciones: 'Bajar el amlodipino a 2,5 mg. Medir por la manana y por la tarde.',
+      notas: 'La familia comenta mareos al levantarse.',
+    },
+    {
+      fecha: hace(3),
+      hora: '17:40',
+      tipo: 'domicilio',
+      motivo: 'Revision de la medicacion en casa',
+      profesional: 'Enfermeria del centro',
+      indicaciones: 'Todo correcto. Mantener el amlodipino de 2,5 mg.',
+      notas: 'La tension de esta tarde fue 108/68, sin mareos.',
+    },
+  ]
+
+  return visitas.map((v) => ({
+    ...v,
+    id: nuevoId(),
+    createdAt: `${v.fecha}T${v.hora || '12:00'}:00`,
+    ejemplo: true,
+  }))
 }

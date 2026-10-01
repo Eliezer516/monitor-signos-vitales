@@ -120,6 +120,24 @@ export const IconoDescargar = (p: Props) => (
   </svg>
 )
 
+/** Estetoscopio: visitas a consulta. */
+export const IconoMedico = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M6 3v5a4 4 0 0 0 8 0V3" />
+    <path d="M4.5 3h3M12.5 3h3" />
+    <path d="M10 12v3a5 5 0 0 0 5 5h.5" />
+    <circle cx="18.5" cy="18" r="3" />
+  </svg>
+)
+
+/** Casa: visitas a domicilio. */
+export const IconoCasaVisita = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5.5 9.2V20a1 1 0 0 0 1 1H10v-5.5h4V21h3.5a1 1 0 0 0 1-1V9.2" />
+  </svg>
+)
+
 export const IconoEditar = (p: Props) => (
   <svg {...base(p)}>
     <path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6" />

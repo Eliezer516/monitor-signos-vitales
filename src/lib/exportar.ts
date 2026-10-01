@@ -6,9 +6,10 @@
  * impresion del navegador resuelve mejor. El usuario elige "Guardar como PDF".
  */
 
-import type { Paciente, PresionHabitual, Registro, Umbrales } from './tipos'
-import { claveDia, fechaCompleta } from './fechas'
+import type { Paciente, PresionHabitual, Registro, Umbrales, Visita } from './tipos'
+import { claveDia, fechaCompleta, hora12 } from './fechas'
 import { resumenDia } from './resumen'
+import { CABECERA_VISITAS, ETIQUETA_VISITA, filaVisita } from './visitas'
 
 /** Descarga un Blob como archivo. */
 function descargar(blob: Blob, nombre: string): void {
@@ -29,6 +30,9 @@ const cabecera = ['Fecha', 'Hora', 'Presion sistolica', 'Presion diastolica', 'O
 /** Filas de un registro, en el orden de `cabecera`. */
 const fila = (r: Registro) => [
   r.fecha,
+  // CSV y Excel se quedan en 24 h a proposito: en una hoja de calculo "8:05 AM"
+  // es texto, y no se puede ordenar por hora ni filtrar por rango. El informe
+  // impreso si va en 12 h, porque ahi lo lee una persona.
   r.hora,
   r.presionSis,
   r.presionDia,
@@ -54,6 +58,46 @@ export function exportarCSV(registros: Registro[], nombreArchivo = 'signos-vital
   // `sep=;` evita que Excel con locale anglosajona rompa las columnas.
   const csv = '\uFEFFsep=;\n' + lineas.join('\r\n')
   descargar(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `${nombreArchivo}.csv`)
+}
+
+/**
+ * Genera un CSV de las visitas.
+ *
+ * Se repite el escapado de `exportarCSV` a proposito en lugar de extraerlo a
+ * un helper compartido: son dos lineas y asi cada exportacion se lee sola.
+ */
+export function exportarVisitasCSV(visitas: Visita[], nombreArchivo = 'visitas'): void {
+  const escapar = (v: unknown) => {
+    const s = String(v ?? '')
+    return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const lineas = [
+    CABECERA_VISITAS.map(escapar).join(';'),
+    ...visitas.map((v) => filaVisita(v).map(escapar).join(';')),
+  ]
+  const csv = '\uFEFFsep=;\n' + lineas.join('\r\n')
+  descargar(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `${nombreArchivo}.csv`)
+}
+
+/**
+ * Exporta las visitas a Excel (.xlsx) con una hoja propia.
+ * Es un archivo aparte y no una hoja mas del Excel de mediciones porque se
+ * exporta en un momento distinto: el historial de visitas se lleva el medico,
+ * las mediciones se analizan en casa.
+ */
+export async function exportarVisitasXLSX(
+  visitas: Visita[],
+  nombreArchivo = 'visitas',
+): Promise<void> {
+  const { default: writeXlsxFile } = await import('write-excel-file/browser')
+  const hoja = writeXlsxFile([
+    {
+      sheet: 'Visitas',
+      data: [CABECERA_VISITAS, ...visitas.map((v) => filaVisita(v))],
+      columns: CABECERA_VISITAS.map((t) => ({ width: Math.max(14, t.length + 4) })),
+    },
+  ])
+  await hoja.toFile(`${nombreArchivo}.xlsx`)
 }
 
 /**
@@ -110,27 +154,37 @@ export async function exportarXLSX(
   await hojaRegistros.toFile(`${nombreArchivo}.xlsx`)
 }
 
-/** Formato del archivo de backup, versionado para restaurarlo en el futuro. */
+/**
+ * Formato del archivo de backup, versionado para restaurarlo en el futuro.
+ *
+ * La v2 anade `visitas`. Se declara `visitas?` porque un backup v1 (generado
+ * antes de que existiera la pantalla) no tiene esa clave y debe seguir
+ * restaurando mediciones y pacientes sin fallar.
+ */
 export interface Backup {
-  version: 1
+  version: 1 | 2
   exportadoEn: string
   app: 'signos-vitales'
   registros: Registro[]
   pacientes: Paciente[]
+  /** Presente solo en backups v2. */
+  visitas?: Visita[]
 }
 
 /** Descarga un backup completo en JSON, restaurable desde Ajustes. */
 export function exportarBackup(
   registros: Registro[],
   pacientes: Paciente[],
+  visitas: Visita[] = [],
   nombreArchivo = 'backup-signos-vitales',
 ): void {
   const backup: Backup = {
-    version: 1,
+    version: 2,
     exportadoEn: new Date().toISOString(),
     app: 'signos-vitales',
     registros,
     pacientes,
+    visitas,
   }
   descargar(
     new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }),
@@ -165,7 +219,11 @@ function aNumero(v: unknown): number | null {
  * Se filtran los registros mal formados en lugar de rechazar todo el archivo,
  * para no perder datos validos por un registro corrupto.
  */
-export function leerBackup(texto: string): { registros: Registro[]; pacientes: Paciente[] } {
+export function leerBackup(texto: string): {
+  registros: Registro[]
+  pacientes: Paciente[]
+  visitas: Visita[]
+} {
   const datos = JSON.parse(texto)
   if (!datos || typeof datos !== 'object') throw new Error('Archivo no valido')
 
@@ -207,7 +265,43 @@ export function leerBackup(texto: string): { registros: Registro[]; pacientes: P
     })
 
   const pacientes = Array.isArray(datos.pacientes) ? (datos.pacientes as Paciente[]) : []
-  return { registros, pacientes }
+
+  // Las visitas se validan con la misma politica que los registros: se descarta
+  // la que este mal formada en vez de rechazar el archivo entero. Una visita sin
+  // `tipo` recogniseda se descarta tambien, porque sin saber si fue consulta o
+  // domicilio el informe clinico mentiria.
+  const crudasVisitas: unknown[] = Array.isArray(datos.visitas) ? datos.visitas : []
+  const visitas: Visita[] = crudasVisitas
+    .filter((v: unknown): v is Visita => {
+      if (!v || typeof v !== 'object') return false
+      const c = v as Record<string, unknown>
+      return (
+        typeof c.fecha === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(c.fecha) &&
+        (c.tipo === 'consulta' || c.tipo === 'domicilio') &&
+        typeof c.motivo === 'string' &&
+        c.motivo.trim() !== ''
+      )
+    })
+    .map((v) => {
+      const c = v as unknown as Record<string, unknown>
+      const texto = (x: unknown) => (typeof x === 'string' ? x : '')
+      return {
+        id:
+          typeof c.id === 'string' && c.id ? c.id : `import-${Math.random().toString(36).slice(2)}`,
+        fecha: c.fecha as string,
+        hora: typeof c.hora === 'string' && /^\d{2}:\d{2}$/.test(c.hora) ? c.hora : undefined,
+        tipo: c.tipo as Visita['tipo'],
+        motivo: c.motivo as string,
+        profesional: texto(c.profesional),
+        indicaciones: texto(c.indicaciones),
+        notas: texto(c.notas),
+        createdAt:
+          typeof c.createdAt === 'string' ? c.createdAt : `${c.fecha}T${texto(c.hora) || '12:00'}:00`,
+      }
+    })
+
+  return { registros, pacientes, visitas }
 }
 
 /** Genera el HTML del reporte medico para imprimir o guardar como PDF. */
@@ -219,9 +313,14 @@ export function reporteHTML(
     hasta: string
     umbral: Umbrales
     presionHabitual?: PresionHabitual
+    /**
+     * Visitas del periodo. Es opcional para no romper a quien genere el reporte
+     * desde codigo anterior, y porque un paciente puede no tener ninguna.
+     */
+    visitas?: Visita[]
   },
 ): string {
-  const { paciente, desde, hasta, umbral, presionHabitual } = opciones
+  const { paciente, desde, hasta, umbral, presionHabitual, visitas = [] } = opciones
   const dias = [...new Set(registros.map((r) => r.fecha))].sort()
   const esc = (s: unknown) =>
     String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
@@ -230,7 +329,7 @@ export function reporteHTML(
     .map(
       (r) => `<tr>
       <td>${esc(r.fecha.split('-').reverse().join('/'))}</td>
-      <td>${esc(r.hora)}</td>
+      <td class="nowrap">${esc(hora12(r.hora))}</td>
       <td class="num">${esc(r.presionSis)}/${esc(r.presionDia)}</td>
       <td class="num">${esc(r.o2)}%</td>
       <td class="num">${esc(r.bpm)}</td>
@@ -254,6 +353,26 @@ export function reporteHTML(
     })
     .join('')
 
+  // Las visitas se filtran por el periodo del reporte. Sin esta tabla el informe
+  // que lleva el paciente al centro cuenta solo numeros: el medico ve como
+  // evoluciona la tension pero no que se decidio en la ultima consulta.
+  const visitasPeriodo = visitas
+    .filter((v) => v.fecha >= desde && v.fecha <= hasta)
+    .sort((a, b) => (a.fecha === b.fecha ? (b.hora ?? '').localeCompare(a.hora ?? '') : a.fecha.localeCompare(b.fecha)))
+
+  const visitaFilas = visitasPeriodo
+    .map(
+      (v) => `<tr>
+      <td>${esc(v.fecha.split('-').reverse().join('/'))}</td>
+      <td class="nowrap">${esc(hora12(v.hora) || '-')}</td>
+      <td>${esc(ETIQUETA_VISITA[v.tipo])}</td>
+      <td>${esc(v.motivo)}</td>
+      <td>${esc(v.profesional || '-')}</td>
+      <td class="notas">${esc(v.indicaciones || '-')}</td>
+    </tr>`,
+    )
+    .join('')
+
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <title>Reporte de signos vitales</title>
@@ -268,6 +387,9 @@ export function reporteHTML(
   th { background: #f2f4f7; font-weight: 600; }
   td.num, th.num { text-align: right; }
   td.notas { font-size: 9pt; color: #444; }
+  /* La hora en 12 h es mas ancha ("8:05 AM" que "08:05"): si puede partirse
+     entre dos lineas, la tabla descuadra al imprimirse. */
+  td.nowrap { white-space: nowrap; }
   .pie { margin-top: 16pt; padding-top: 8pt; border-top: 1px solid #d0d7de; font-size: 8.5pt; color: #666; }
   .firma { margin-top: 34pt; }
   .linea-firma { border-top: 1px solid #333; width: 55mm; margin-top: 22pt; padding-top: 3pt; font-size: 8.5pt; }
@@ -299,6 +421,15 @@ export function reporteHTML(
       <th class="num">O2</th><th class="num">Pulso</th><th class="num">Orina</th><th>Notas</th>
     </tr></thead>
     <tbody>${filas || '<tr><td colspan="7">Sin registros en el periodo</td></tr>'}</tbody>
+  </table>
+
+  <h2>Visitas medicas y a domicilio</h2>
+  <table>
+    <thead><tr>
+      <th>Fecha</th><th>Hora</th><th>Tipo</th>
+      <th>Motivo</th><th>Profesional</th><th>Indicaciones</th>
+    </tr></thead>
+    <tbody>${visitaFilas || '<tr><td colspan="6">Sin visitas en el periodo</td></tr>'}</tbody>
   </table>
 
   <div class="pie">

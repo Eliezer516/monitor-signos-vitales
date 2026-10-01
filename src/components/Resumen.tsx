@@ -13,7 +13,7 @@ import {
   evaluarO2,
   evaluarSis,
 } from '../lib/rangos'
-import { haceCuanto, nombreDiaCorto } from '../lib/fechas'
+import { haceCuanto, hora12, nombreDiaCorto } from '../lib/fechas'
 import { Insignia, PuntoEstado, Vacio, cx } from './UI'
 import { IconoAlerta, IconoCorazon, IconoGota, IconoOximetro, IconoPulso, IconoReloj } from './Iconos'
 
@@ -194,7 +194,7 @@ function FilaMedicion({
         {clase === 'con-fecha' && (
           <span className="mr-2 text-texto-suave">{r.fecha.slice(8)}/{r.fecha.slice(5, 7)}</span>
         )}
-        <span className="font-medium tabular-nums">{r.hora}</span>
+        <span className="font-medium tabular-nums">{hora12(r.hora)}</span>
       </td>
       <td className="py-2.5 pr-2 tabular-nums">
         <span className={colorNivel(nv.sis)}>{r.presionSis}</span>
@@ -299,7 +299,7 @@ function TarjetaMedicion({
               {r.fecha.slice(8)}/{r.fecha.slice(5, 7)}
             </span>
           )}
-          {r.hora}
+          {hora12(r.hora)}
         </span>
         <div className="flex items-center gap-1">
           {(onEditar || onEliminar) && (

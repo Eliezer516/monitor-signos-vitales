@@ -15,7 +15,7 @@ import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useAjustes } from '../context/ContextoAjustes'
 import { seriePorPeriodo, resumenDia } from '../lib/resumen'
-import { claveDia, fechaCorta } from '../lib/fechas'
+import { claveDia, fechaCorta, hora12 } from '../lib/fechas'
 import { COLORES_SERIE } from '../lib/rangos'
 import type { Periodo, PresionHabitual, PuntoSerie, Registro, Umbrales } from '../lib/tipos'
 import { GraficaBarras, GraficaLinea, Leyenda } from '../components/Graficas'
@@ -296,7 +296,10 @@ function GraficasDelDia({
     )
   }
 
-  const etiquetas = registros.map((r) => r.hora)
+  // Las etiquetas del eje van en 12 horas como el resto de la app. "8:05 AM" es
+  // mas ancho que "08:05": el hueco horizontal del eje es el que decide cuantas
+  // se dibujan, asi que se deja que el componente las reparta.
+  const etiquetas = registros.map((r) => hora12(r.hora))
   const resumen = resumenDia(registros, fecha)
 
   return (
@@ -379,7 +382,7 @@ function GraficasDelDia({
 <GraficaBarras
         barras={registros.map((r) => ({
           clave: r.id,
-          etiqueta: r.hora,
+          etiqueta: hora12(r.hora),
           valor: r.orina ?? 0,
         }))}
         formatoValor={(v) => `${Math.round(v)} ml`}

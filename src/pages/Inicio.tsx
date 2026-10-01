@@ -4,19 +4,22 @@
  * Prioridad de lectura, de arriba abajo:
  *  1. Alertas que requieren atencion (si hay).
  *  2. Totales del dia (orina acumulada y promedios).
- *  3. Registro rapido en un toque, que es la accion mas frecuente.
- *  4. Movimientos de las ultimas 24 horas.
+ *  3. Movimientos de las ultimas 24 horas.
+ *
+ * El registro va en un boton flotante en la esquina inferior derecha: es la
+ * accion mas frecuente y asi no empuja hacia abajo el contenido que se lee de
+ * un vistazo.
  */
 
 import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useAjustes } from '../context/ContextoAjustes'
 import { alertasDelDia, resumenDia, nivelDia } from '../lib/resumen'
-import { aDate, etiquetaRelativa, haceCuanto } from '../lib/fechas'
+import { aDate, etiquetaRelativa, fechaCorta, haceCuanto, hora12 } from '../lib/fechas'
 import { evaluarBpm, evaluarDia, evaluarO2, evaluarSis } from '../lib/rangos'
 import type { Nivel } from '../lib/tipos'
 import { ListaMediciones, PanelAlertas, TarjetaMetrica, n } from '../components/Resumen'
-import { Insignia, Tarjeta, cx } from '../components/UI'
+import { BotonFlotante, Insignia, Tarjeta, cx } from '../components/UI'
 import { IconoGota, IconoOximetro, IconoPulso, IconoCorazon, IconoMas } from '../components/Iconos'
 import { Calendario } from '../components/Calendario'
 import { FormularioRapido } from '../components/FormularioRapido'
@@ -60,20 +63,10 @@ const ultimas24 = useMemo(() => {
 
   if (cargando) return <Cargando />
 
-  return (
-    <div className="space-y-4">
-      {/* Acceso rapido: la accion mas frecuente a un toque de distancia. */}
-      <button
-        onClick={onIrRegistrar}
-        className={cx(
-          'flex w-full items-center justify-center gap-2.5 rounded-2xl bg-marca py-4',
-          'text-base font-semibold text-white shadow-sm transition active:scale-[0.99]',
-        )}
-      >
-        <IconoMas width={22} height={22} />
-        Registrar medicion ahora
-      </button>
-
+return (
+    // El `pb` de abajo es para que la ultima tarjeta se pueda dejar por debajo
+    // del boton flotante al hacer scroll; el boton es fijo y no arrastra.
+    <div className="space-y-4 pb-10 lg:pb-16">
       {/* Alertas del dia seleccionado */}
       {alertas.length > 0 && (
         <section aria-label="Alertas">
@@ -169,13 +162,27 @@ evaluarSis(resumen.promedioPresionSis, ajustes.umbral, presionHabitual),
           umbral={ajustes.umbral}
           habitual={presionHabitual}
           compacta
-          onEliminar={(r) => {
-            if (confirm(`Eliminar la medicion de las ${r.hora} del ${r.fecha}?`)) {
+onEliminar={(r) => {
+            if (
+              confirm(
+                `Eliminar la medicion de las ${hora12(r.hora)} del ${fechaCorta(r.fecha)}?`,
+              )
+            ) {
               eliminar(r.id)
             }
           }}
         />
       </Tarjeta>
+
+      {/* Registro en una sola pantalla: alinee con el borde inferior para que el
+          boton siga siendo alcanzable con el pulgar y no tape la barra inferior. */}
+      <BotonFlotante
+        onClick={onIrRegistrar}
+        icono={<IconoMas width={24} height={24} />}
+        title="Registrar medicion ahora"
+      >
+        Registrar
+      </BotonFlotante>
     </div>
   )
 }

@@ -16,7 +16,7 @@ import { useMemo, useState, type ChangeEvent } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useAvisos } from './Avisos'
-import { claveDia, claveHora, fechaCorta } from '../lib/fechas'
+import { claveDia, claveHora, fechaCorta, hora12 } from '../lib/fechas'
 import {
   PRESION_HABITUAL_POR_DEFECTO,
   UMBRALES_POR_DEFECTO,
@@ -190,7 +190,7 @@ export function FormularioRegistro({ registroEditando, onCancelar }: {
       {registroEditando && (
         <div className="flex items-center justify-between gap-2 rounded-xl bg-marca-suave px-3.5 py-2.5">
           <span className="text-sm font-medium text-marca">
-            Editando medicion de las {registroEditando.hora}
+            Editando medicion de las {hora12(registroEditando.hora)}
           </span>
           <button
             type="button"

@@ -9,12 +9,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /** Rutas de la aplicacion. */
-export type Ruta = 'inicio' | 'registrar' | 'historial' | 'graficas' | 'reportes' | 'ajustes'
+export type Ruta = 'inicio' | 'registrar' | 'historial' | 'visitas' | 'graficas' | 'reportes' | 'ajustes'
 
 export const RUTAS: { id: Ruta; etiqueta: string }[] = [
   { id: 'inicio', etiqueta: 'Inicio' },
   { id: 'registrar', etiqueta: 'Registrar' },
   { id: 'historial', etiqueta: 'Historial' },
+  { id: 'visitas', etiqueta: 'Visitas' },
   { id: 'graficas', etiqueta: 'Graficas' },
   { id: 'reportes', etiqueta: 'Reportes' },
   { id: 'ajustes', etiqueta: 'Ajustes' },

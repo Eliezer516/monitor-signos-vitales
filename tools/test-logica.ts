@@ -1,11 +1,13 @@
 /** Pruebas rapidas de la logica pura: se ejecutan con tsx/ts sin navegador. */
-import { crearRegistrosDemo } from '../src/lib/demo'
+import { crearRegistrosDemo, crearVisitasDemo } from '../src/lib/demo'
 import { evaluarO2, evaluarDia, evaluarSis, validarRegistro } from '../src/lib/rangos'
 import { PRESION_HABITUAL_POR_DEFECTO, bandaNormal } from '../src/lib/rangos'
-import { claveDia, sumarDias, aDate, claveHora, inicioSemana } from '../src/lib/fechas'
+import { claveDia, sumarDias, aDate, claveHora, inicioSemana, hora12 } from '../src/lib/fechas'
 import { UMBRALES_POR_DEFECTO, LIMITES_POR_DEFECTO } from '../src/lib/rangos'
 import { resumenDia, alertasDelDia, seriePorPeriodo, compararPeriodos } from '../src/lib/resumen'
-import { leerBackup } from '../src/lib/exportar'
+import { leerBackup, reporteHTML } from '../src/lib/exportar'
+import { ordenarVisitas } from '../src/lib/db'
+import { aDatosVisita, resumenVisitas, validarVisita } from '../src/lib/visitas'
 
 let fallos = 0
 function ok(nombre: string, cond: boolean, extra = '') {
@@ -100,5 +102,106 @@ ok('descarta campos numericos vacios (no los convierte en 0)', leido.registros.e
 ok('orina ausente queda null', leido.registros.every(r => r.orina === null))
 ok('genera id si falta', leido.registros.every(r => typeof r.id === 'string' && r.id.length > 0))
 ok('conserva pacientes', leido.pacientes.length === 1)
+ok('un backup v1 sin clave "visitas" no rompe la lectura', leido.visitas.length === 0)
+
+console.log('6. Visitas del profesional sanitario')
+const visitaBuena = { fecha: '2026-09-28', hora: '10:15', tipo: 'consulta' as const, motivo: 'Revision de la tension', profesional: 'Dra. Garcia', indicaciones: '', notas: '' }
+const conVisitas = JSON.stringify({ version: 2, app: 'signos-vitales', registros: [], pacientes: [], visitas: [
+  visitaBuena,
+  { ...visitaBuena, id: 'v2', fecha: '2026-09-29', tipo: 'domicilio' },
+  // Se descartan: sin tipo no se sabe si fue consulta o domicilio.
+  { fecha: '2026-09-29', motivo: 'Algo' },
+  { fecha: 'no-es-fecha', tipo: 'consulta', motivo: 'Algo' },
+  { fecha: '2026-09-29', tipo: 'consulta', motivo: '   ' },
+  'basura',
+] })
+const leidoConVisitas = leerBackup(conVisitas)
+ok('descarta las visitas mal formadas y conserva las 2 buenas', leidoConVisitas.visitas.length === 2, `(${leidoConVisitas.visitas.length})`)
+ok('descarta la visita sin tipo', leidoConVisitas.visitas.every(v => v.tipo === 'consulta' || v.tipo === 'domicilio'))
+ok('descarta el motivo en blanco', leidoConVisitas.visitas.every(v => v.motivo.trim() !== ''))
+ok('rellena los textos ausentes con cadena vacia', leidoConVisitas.visitas.every(v => typeof v.profesional === 'string' && typeof v.indicaciones === 'string' && typeof v.notas === 'string'))
+ok('descarta una hora invalida en vez de importarla', leidoConVisitas.visitas.every(v => v.hora === undefined || /^\d{2}:\d{2}$/.test(v.hora)))
+ok('genera id si falta', leidoConVisitas.visitas.every(v => typeof v.id === 'string' && v.id.length > 0))
+
+// La hora vacia debe guardarse como `undefined`, no como '': `ordenarVisitas`
+// coloca las visitas sin hora antes que las que si la tienen del mismo dia.
+ok('sin hora queda undefined, no cadena vacia', aDatosVisita({ ...visitaBuena, hora: '' }).hora === undefined)
+ok('con hora se respeta', aDatosVisita(visitaBuena).hora === '10:15')
+ok('recorta los espacios de los textos', aDatosVisita({ ...visitaBuena, motivo: '  Revision  ' }).motivo === 'Revision')
+
+// Solo el motivo es obligatorio: no todo el mundo recuerda la hora exacta de una
+// visita a domicilio, y obligar a inventarla seria peor que dejar el hueco vacio.
+ok('sin motivo da error', Boolean(validarVisita({ ...visitaBuena, motivo: '  ' }).motivo))
+ok('sin profesional NO da error', !validarVisita({ ...visitaBuena, profesional: '' }).profesional)
+ok('sin hora NO da error', !validarVisita({ ...visitaBuena, hora: '' }).hora)
+ok('fecha invalida da error', Boolean(validarVisita({ ...visitaBuena, fecha: 'ayer' }).fecha))
+ok('hora invalida da error', Boolean(validarVisita({ ...visitaBuena, hora: '9' }).hora))
+
+const demoVisitas = crearVisitasDemo(new Date('2026-09-30T12:00:00'))
+ok('las visitas de ejemplo tienen id y fecha valida', demoVisitas.every(v => v.id.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(v.fecha)))
+ok('las visitas de ejemplo mezclan consulta y domicilio', new Set(demoVisitas.map(v => v.tipo)).size === 2)
+ok('las visitas de ejemplo van de mas antigua a mas reciente', demoVisitas.every((v, i) => i === 0 || demoVisitas[i - 1].fecha <= v.fecha))
+
+// `ordenarVisitas` es la misma logica que usa la base de datos para cargar.
+const ordenadas = ordenarVisitas([
+  { ...visitaBuena, id: 'a', fecha: '2026-09-01', hora: '10:00' },
+  { ...visitaBuena, id: 'b', fecha: '2026-09-02', hora: undefined },
+  { ...visitaBuena, id: 'c', fecha: '2026-09-01', hora: undefined },
+  { ...visitaBuena, id: 'd', fecha: '2026-09-01', hora: '18:00' },
+])
+ok('ordena por fecha descendente', ordenadas[0].id === 'b')
+ok('a igual fecha, la hora mas tarde primero', ordenadas.slice(1).map(v => v.id).join() === 'd,a,c')
+// Sin hora no consta cuando ocurrio, asi que queda al final del dia, no al
+// principio: en un listado de mas reciente a mas antiguo no tiene sentido
+// insinuar que fue lo primero que paso.
+ok('sin hora queda al final de su dia', ordenadas[1].id === 'd' && ordenadas[3].id === 'c')
+
+const cuenta = resumenVisitas(demoVisitas)
+ok('resumen cuenta el total', cuenta.total === demoVisitas.length)
+ok('resumen reparte consulta y domicilio', cuenta.consultas + cuenta.domicilios === cuenta.total)
+ok('resumen detecta visitas sin profesional', cuenta.sinProfesional === demoVisitas.filter(v => !v.profesional).length)
+
+// La tabla de visitas del informe medico debe llevar las del periodo y solo esas.
+const htmlConVisitas = reporteHTML([], {
+  desde: '2026-09-01', hasta: '2026-09-29',
+  umbral: UMBRALES_POR_DEFECTO,
+  visitas: [
+    { ...visitaBuena, id: 'x', fecha: '2026-09-28' },
+    { ...visitaBuena, id: 'y', fecha: '2026-09-30' },
+  ],
+})
+ok('el informe recoge la visita del periodo', htmlConVisitas.includes('28/09/2026'))
+ok('el informe excluye la visita fuera de periodo', !htmlConVisitas.includes('30/09/2026'))
+ok('el informe escapa el HTML de los textos', !reporteHTML([], {
+  desde: '2026-09-01', hasta: '2026-09-30',
+  umbral: UMBRALES_POR_DEFECTO,
+  visitas: [{ ...visitaBuena, fecha: '2026-09-28', motivo: '<script>alerta(1)</script>' }],
+}).includes('<script>'))
+
+console.log('7. Hora en 12 horas')
+ok('medianoche es 12 AM, no 0', hora12('00:00') === '12:00 AM')
+ok('la primera hora de la manana es 12 AM', hora12('00:45') === '12:45 AM')
+ok('mediodia es 12 PM, no 0', hora12('12:00') === '12:00 PM')
+ok('la una de la tarde es 1 PM', hora12('13:00') === '1:00 PM')
+ok('la una y veinte de la tarde', hora12('13:20') === '1:20 PM')
+ok('la una de la manana es 1 AM', hora12('01:00') === '1:00 AM')
+ok('las 11 de la manana siguen siendo AM', hora12('11:59') === '11:59 AM')
+ok('las 11 de la noche pasan a PM', hora12('23:59') === '11:59 PM')
+ok('las 12 de la noche no son 12 PM', hora12('00:00') !== '12:00 PM')
+ok('las 12 del mediodia no son 12 AM', hora12('12:00') !== '12:00 AM')
+// Sin hora (visita a domicilio de la que no se sabe el momento) no se inventa.
+ok('sin hora devuelve cadena vacia', hora12(undefined) === '')
+ok('una hora invalida devuelve cadena vacia', hora12('25:99') === '')
+ok('un texto vacio devuelve cadena vacia', hora12('') === '')
+// Los minutos se conservan tal cual, con los dos digitos de siempre.
+ok('conserva el cero de los minutos', hora12('09:05') === '9:05 AM')
+
+// El informe impreso va en 12 h, pero el CSV sigue en 24 h: en una hoja de
+// calculo "8:05 AM" es texto y no se puede ordenar ni filtrar por hora.
+const conAlerta = reporteHTML(
+  [{ ...crearRegistrosDemo(new Date('2026-09-30T12:00:00'))[0], fecha: '2026-09-28', hora: '21:15', o2: 88 }],
+  { desde: '2026-09-01', hasta: '2026-09-30', umbral: { ...UMBRALES_POR_DEFECTO, o2Min: 90 } },
+)
+ok('el informe muestra la hora en 12 h', conAlerta.includes('9:15 PM') && !conAlerta.includes('21:15'))
 
 console.log(fallos === 0 ? '\nTODO CORRECTO' : `\n${fallos} FALLOS`)

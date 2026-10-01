@@ -11,7 +11,7 @@ import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useAvisos } from '../components/Avisos'
-import { claveDia } from '../lib/fechas'
+import { claveDia, fechaCompleta, hora12 } from '../lib/fechas'
 import { rangoTotal } from '../lib/resumen'
 import { exportarCSV, exportarXLSX } from '../lib/exportar'
 import type { Registro } from '../lib/tipos'
@@ -70,11 +70,13 @@ export function PaginaHistorial() {
     if (term) {
       // La busqueda cubre notas y tambien los valores, para poder buscar
       // "furosemida" o "O2 99" sin filtros adicionales.
-      lista = lista.filter(
+lista = lista.filter(
         (r) =>
           r.notas.toLowerCase().includes(term) ||
           r.fecha.includes(term) ||
+          // Se buscan las dos formas: quien teclea "13" y quien teclea "1 PM".
           r.hora.includes(term) ||
+          hora12(r.hora).toLowerCase().includes(term) ||
           String(r.presionSis).includes(term) ||
           String(r.presionDia).includes(term) ||
           String(r.o2).includes(term) ||
@@ -102,8 +104,12 @@ export function PaginaHistorial() {
     setPagina(1)
   }
 
-  const confirmarBorrado = (r: Registro) => {
-    if (confirm(`Eliminar la medicion del ${r.fecha} a las ${r.hora}?\n\nEsta accion no se puede deshacer.`)) {
+const confirmarBorrado = (r: Registro) => {
+    if (
+      confirm(
+        `Eliminar la medicion del ${fechaCompleta(r.fecha)} a las ${hora12(r.hora)}?\n\nEsta accion no se puede deshacer.`,
+      )
+    ) {
       eliminar(r.id)
       aviso('Medicion eliminada')
     }
@@ -134,9 +140,10 @@ export function PaginaHistorial() {
     return (
       <div className="space-y-4">
         <Tarjeta className="flex items-center justify-between gap-3">
-          <p className="text-sm text-texto-suave">
-            Editando la medicion del <strong className="text-texto">{editando.fecha}</strong> a las{' '}
-            <strong className="text-texto">{editando.hora}</strong>
+<p className="text-sm text-texto-suave">
+            Editando la medicion del{' '}
+            <strong className="text-texto">{fechaCompleta(editando.fecha)}</strong> a las{' '}
+            <strong className="text-texto">{hora12(editando.hora)}</strong>
           </p>
           <button
             onClick={() => setEditando(null)}

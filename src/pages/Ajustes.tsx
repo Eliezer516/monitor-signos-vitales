@@ -10,10 +10,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAjustes, plantillasSugeridas } from '../context/ContextoAjustes'
 import { useRegistros } from '../context/ContextoRegistros'
+import { useVisitas } from '../context/ContextoVisitas'
 import { useAvisos } from '../components/Avisos'
 import { exportarBackup, leerBackup } from '../lib/exportar'
 import { indexedDBDisponible } from '../lib/db'
 import { crearRegistrosDemo } from '../lib/demo'
+import { claveDia, claveHora, fechaCorta, hora12 } from '../lib/fechas'
 import {
   comprobarRecordatorio,
   describirIntervalo,
@@ -707,6 +709,7 @@ export function useRecordatoriosActivos() {
 
 function SeccionDatos() {
   const { registros, fusionar, vaciar, cargando } = useRegistros()
+  const { visitas, fusionar: fusionarVisitas, vaciar: vaciarVisitas } = useVisitas()
   const { pacientes, ajustes, setAjuste, fusionarPacientes } = useAjustes()
   const { aviso } = useAvisos()
   const [confirmando, setConfirmando] = useState(false)
@@ -721,26 +724,30 @@ function SeccionDatos() {
     const lector = new FileReader()
     lector.onload = () => {
       try {
-        const { registros: importados, pacientes: pacientesImportados } = leerBackup(
-          String(lector.result),
-        )
-        if (!importados.length && !pacientesImportados.length) {
+        const {
+          registros: importados,
+          pacientes: pacientesImportados,
+          visitas: visitasImportadas,
+        } = leerBackup(String(lector.result))
+        if (!importados.length && !pacientesImportados.length && !visitasImportadas.length) {
           aviso('El archivo no contiene datos validos', 'error')
           return
         }
 
         if (importados.length) fusionar(importados)
+        if (visitasImportadas.length) fusionarVisitas(visitasImportadas)
         const nuevosPacientes = fusionarPacientes(pacientesImportados)
 
         // Un unico aviso resume la operacion: si se avisa dos veces se puede
         // perder el primero, que es el que confirma que el archivo se leyo.
         const partes = [
           importados.length ? `${importados.length} mediciones` : null,
+          visitasImportadas.length ? `${visitasImportadas.length} visitas` : null,
           nuevosPacientes ? `${nuevosPacientes} pacientes` : null,
         ].filter(Boolean)
         aviso(
           partes.length
-            ? `Backup restaurado: ${partes.join(' y ')}`
+            ? `Backup restaurado: ${partes.join(', ')}`
             : 'Backup restaurado: todo ya estaba guardado',
         )
       } catch {
@@ -752,10 +759,14 @@ function SeccionDatos() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-3 gap-2.5">
         <div className="tarjeta p-3 text-center">
           <p className="text-2xl font-semibold tabular-nums text-texto">{registros.length}</p>
           <p className="text-xs text-texto-suave">mediciones</p>
+        </div>
+        <div className="tarjeta p-3 text-center">
+          <p className="text-2xl font-semibold tabular-nums text-texto">{visitas.length}</p>
+          <p className="text-xs text-texto-suave">visitas</p>
         </div>
         <div className="tarjeta p-3 text-center">
           <p className="text-2xl font-semibold tabular-nums text-texto">{pacientes.length}</p>
@@ -766,7 +777,7 @@ function SeccionDatos() {
       <Boton
         ancho
         onClick={() => {
-          exportarBackup(registros, pacientes)
+          exportarBackup(registros, pacientes, visitas)
           setAjuste('ultimoBackup', new Date().toISOString())
           aviso('Backup descargado')
         }}
@@ -776,7 +787,12 @@ function SeccionDatos() {
       </Boton>
       {ajustes.ultimoBackup && (
         <p className="-mt-2 text-center text-xs text-texto-suave">
-          Ultimo backup: {new Date(ajustes.ultimoBackup).toLocaleString('es-ES')}
+          Ultimo backup:{' '}
+          {/* Se pasa por los helpers de fecha en vez de `toLocaleString`: el
+              locale fijado a es-ES daria las 24 horas, y aqui se muestran las
+              12 como en el resto de la app. */}
+          {fechaCorta(claveDia(new Date(ajustes.ultimoBackup)))} a las{' '}
+          {hora12(claveHora(new Date(ajustes.ultimoBackup)))}
         </p>
       )}
 
@@ -802,9 +818,9 @@ function SeccionDatos() {
       />
 
       <p className="text-xs text-texto-suave">
-        Al restaurar se anaden las mediciones y los pacientes del archivo a los
-        existentes; no se borra nada. Si hay registros con el mismo identificador,
-        se conservan los tuyos.
+        Al restaurar se anaden las mediciones, las visitas y los pacientes del archivo
+        a los existentes; no se borra nada. Si hay datos con el mismo
+        identificador, se conservan los tuyos.
       </p>
 
       {/* Solo aparece si no hay nada guardado: ayuda a entender la app sin
@@ -846,8 +862,8 @@ function SeccionDatos() {
 
       <Modal abierto={confirmando} onCerrar={() => setConfirmando(false)} titulo="Borrar todo">
         <p className="text-sm text-texto">
-          Se eliminaran las {registros.length} mediciones guardadas en este
-          dispositivo. Esta accion no se puede deshacer.
+          Se eliminaran las {registros.length} mediciones y las {visitas.length}{' '}
+          visitas guardadas en este dispositivo. Esta accion no se puede deshacer.
         </p>
         <p className="mt-2 text-sm text-texto-suave">
           Descarga un backup antes si quieres conservar la informacion.
@@ -860,6 +876,7 @@ function SeccionDatos() {
             variante="peligro"
             onClick={() => {
               vaciar()
+              vaciarVisitas()
               setConfirmando(false)
               aviso('Todos los datos han sido borrados')
             }}

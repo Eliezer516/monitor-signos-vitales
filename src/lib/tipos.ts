@@ -5,11 +5,15 @@
  * ("YYYY-MM-DD") y `hora` como "HH:MM" (24h). Se evita `Date` completo porque
  * al serializar a JSON un Date se vuelve UTC y desplaza el dia del paciente
  * (un registro de las 23:50 en un huso negativo pasaria al dia siguiente).
+ *
+ * Las 24 horas son solo el formato de guardado, por lo que las horas ordenan y
+ * se calculan bien: la interfaz las muestra en 12 horas con `hora12` de
+ * `lib/fechas`, porque es como las leen las personas.
  */
 
 /** Fecha en formato ISO corto local, p. ej. "2026-09-30". */
 export type FechaISO = string
-/** Hora en formato 24h, p. ej. "23:15". */
+/** Hora en formato 24h, p. ej. "23:15". Se muestra con `hora12`. */
 export type Hora = string
 
 /** Un registro de signos vitales. */
@@ -100,6 +104,44 @@ export interface Paciente {
    */
   presionHabitual?: PresionHabitual
   creadoAt: string
+}
+
+/** Donde se produjo el encuentro con el profesional sanitario. */
+export type TipoVisita = 'consulta' | 'domicilio'
+
+/**
+ * Visita del medico o del profesional sanitario.
+ *
+ * No es lo mismo que un registro de signos vitales: las mediciones describen el
+ * estado del paciente entre visitas, y esta entidad deja constancia de quien
+ * le vio, cuando, por que y que le indico. Sin ella, el informe que lleva el
+ * paciente al centro medico cuenta solo numeros y no cuenta la evolucion
+ * clinica.
+ *
+ * Se distingue consulta de visita a domicilio porque el domicilio suele ser
+ * donde el profesional ajusta el tratamiento en vivo (una hipotension que baja
+ * al levantarse se ve ahi y no en consulta), mientras que la consulta aporta
+ * pruebas y recetas.
+ */
+export interface Visita {
+  id: string
+  /** Dia local de la visita. */
+  fecha: FechaISO
+  /** Hora local de la visita, "HH:MM". Opcional: muchas se rescriben a posteriori. */
+  hora?: Hora
+  tipo: TipoVisita
+  /** Motivo principal de la visita. */
+  motivo: string
+  /** Profesional o centro que realizo la visita. */
+  profesional: string
+  /** Indicaciones o tratamiento acordados en esa visita. */
+  indicaciones: string
+  /** Notas libres de la visita. */
+  notas: string
+  /** ISO completo de creacion, para ordenar y depurar. */
+  createdAt: string
+  /** Marca las visitas cargadas desde los datos de ejemplo. */
+  ejemplo?: boolean
 }
 
 /** Plantilla de nota rapida. */

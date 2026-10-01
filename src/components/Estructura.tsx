@@ -10,7 +10,7 @@
 import type { ReactNode } from 'react'
 import { RUTAS, type Ruta } from '../hooks/useRuta'
 import { cx } from './UI'
-import { IconoAjustes, IconoCasa, IconoGrafica, IconoHistorial, IconoMas, IconoReporte } from './Iconos'
+import { IconoAjustes, IconoCasa, IconoGrafica, IconoHistorial, IconoMas, IconoMedico, IconoReporte } from './Iconos'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useRegistros } from '../context/ContextoRegistros'
 import { resumenDia } from '../lib/resumen'
@@ -20,6 +20,7 @@ const ICONOS: Record<Ruta, (p: { width?: number; height?: number }) => ReactNode
   inicio: (p) => <IconoCasa {...p} />,
   registrar: (p) => <IconoMas {...p} />,
   historial: (p) => <IconoHistorial {...p} />,
+  visitas: (p) => <IconoMedico {...p} />,
   graficas: (p) => <IconoGrafica {...p} />,
   reportes: (p) => <IconoReporte {...p} />,
   ajustes: (p) => <IconoAjustes {...p} />,

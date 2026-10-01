@@ -20,6 +20,35 @@ export function claveHora(d: Date): Hora {
   return `${DOS_DIGITOS(d.getHours())}:${DOS_DIGITOS(d.getMinutes())}`
 }
 
+/**
+ * "HH:MM" en formato de 12 horas, como "8:05 AM" o "1:30 PM".
+ *
+ * Se guarda siempre en 24 horas (`Hora` es "HH:MM") y se convierte solo al
+ * mostrar: asi el orden lexicografico, los calculos y los ficheros exportados
+ * siguen siendo correctos, y quien lleva el dato lo ve como lo lee en un reloj
+ * de pared o en un reloj digital de pulsera.
+ *
+ * "AM"/"PM" en mayusculas y sin puntos: es la forma que se reconoce de un
+ * vistazo, y evita que el punto se confunda con parte de la cifra en textos
+ * pequeños (tablas, etiquetas de graficas).
+ *
+ * Devuelve cadena vacia si la hora no es valida, para poder mostrar un guion en
+ * su lugar sin tener que comprobarlo en cada sitio.
+ */
+export function hora12(hora: Hora | undefined): string {
+  if (!hora) return ''
+  const m = /^(\d{2}):(\d{2})$/.exec(hora)
+  if (!m) return ''
+  const h = Number(m[1])
+  const min = m[2]
+  // "25:99" tiene forma de hora pero no lo es: sin esta comprobacion salia
+  // "1:99 PM", que no es una hora que pueda existir.
+  if (h > 23 || Number(min) > 59) return ''
+  // 00 -> 12 AM, 12 -> 12 PM, 13 -> 1 PM, 23 -> 11 PM.
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${min} ${h < 12 ? 'AM' : 'PM'}`
+}
+
 /** Convierte "YYYY-MM-DD" + "HH:MM" en un Date local. */
 export function aDate(fecha: FechaISO, hora: Hora = '00:00'): Date {
   const [a, m, d] = fecha.split('-').map(Number)
