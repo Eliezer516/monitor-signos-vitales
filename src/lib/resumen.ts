@@ -409,3 +409,24 @@ export function ultimaFecha(registros: Registro[]): FechaISO {
   const f = diasConRegistros(registros)[0]
   return f ?? claveDia(new Date())
 }
+
+/**
+ * Agrupa registros por dia conservando el orden de la lista de entrada.
+ *
+ * El historial pagina por dias en vez de por filas, asi que el agrupado tiene
+ * que ser estable: el orden de los dias lo marca el primer registro que aparece
+ * de cada uno, que es justo como llega la lista (ya ordenada por el filtro
+ * elegido). Solo agrupar, sin reordenar, evita que "mas antiguos primero"
+ * invierta el criterio por accidente.
+ */
+export function agruparPorDia(
+  registros: Registro[],
+): { fecha: FechaISO; registros: Registro[] }[] {
+  const porDia = new Map<FechaISO, Registro[]>()
+  for (const r of registros) {
+    const delDia = porDia.get(r.fecha)
+    if (delDia) delDia.push(r)
+    else porDia.set(r.fecha, [r])
+  }
+  return [...porDia].map(([fecha, rs]) => ({ fecha, registros: rs }))
+}

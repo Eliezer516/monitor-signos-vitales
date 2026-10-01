@@ -111,6 +111,9 @@ const MESES = [
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ]
 
+/** Primera letra en mayuscula: los dias y meses se guardan en minuscula. */
+const capitalizar = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
 /** "sabado" en minuscula, sin acentos (facil de comparar y de buscar). */
 export const nombreDia = (fecha: FechaISO) => DIAS_LARGOS[aDate(fecha).getDay()]
 export const nombreDiaCorto = (fecha: FechaISO) => DIAS_CORTOS[aDate(fecha).getDay()]
@@ -125,9 +128,19 @@ export function fechaCorta(fecha: FechaISO): string {
 /** "Sabado 30 de septiembre" */
 export function fechaLarga(fecha: FechaISO): string {
   const d = aDate(fecha)
-  const dia = DIAS_LARGOS[d.getDay()]
   const mes = MESES[d.getMonth()]
-  return `${dia.charAt(0).toUpperCase()}${dia.slice(1)} ${d.getDate()} de ${mes}`
+  return `${capitalizar(nombreDia(fecha))} ${d.getDate()} de ${mes}`
+}
+
+/**
+ * Encabezado de un grupo de mediciones de un mismo dia: "30/09 - Sabado".
+ *
+ * El formato reune las dos mitades que se suelen buscar: la cifra corta, para
+ * locating un dia rapido, y el dia de la semana, que es como se piensa en
+ * "el martes de la semana pasada".
+ */
+export function etiquetaDia(fecha: FechaISO): string {
+  return `${fecha.slice(8)}/${fecha.slice(5, 7)} - ${capitalizar(nombreDia(fecha))}`
 }
 
 /** "Sabado 30 de septiembre de 2026" */

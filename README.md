@@ -13,8 +13,9 @@ basico cuando se trata de datos de salud.
 - **Registro rapido** de presion, oxigeno, pulso y orina, con la hora actual ya
   puesta y validacion de rangos en el momento. El acceso al registro es un
   boton flotante en la esquina inferior derecha, siempre al alcance del pulgar.
-- **Historial** con busqueda, filtros por fecha y nivel de alerta, y edicion o
-  borrado de cualquier medicion.
+- **Historial** agrupado por dia, con un encabezado "DD/MM - Dia de la semana" y
+  busqueda, filtros por fecha y nivel de alerta. Edicion o borrado de cualquier
+  medicion.
 - **Graficas** de tendencias por dia, semana y mes, con lineas de referencia de
   los umbrales configurados.
 - **Reportes** diarios, semanales y comparativos entre periodos, exportables a

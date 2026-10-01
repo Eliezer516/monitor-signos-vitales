@@ -2,9 +2,9 @@
 import { crearRegistrosDemo, crearVisitasDemo } from '../src/lib/demo'
 import { evaluarO2, evaluarDia, evaluarSis, validarRegistro } from '../src/lib/rangos'
 import { PRESION_HABITUAL_POR_DEFECTO, bandaNormal } from '../src/lib/rangos'
-import { claveDia, sumarDias, aDate, claveHora, inicioSemana, hora12 } from '../src/lib/fechas'
+import { claveDia, sumarDias, aDate, claveHora, inicioSemana, hora12, etiquetaDia } from '../src/lib/fechas'
 import { UMBRALES_POR_DEFECTO, LIMITES_POR_DEFECTO } from '../src/lib/rangos'
-import { resumenDia, alertasDelDia, seriePorPeriodo, compararPeriodos } from '../src/lib/resumen'
+import { resumenDia, alertasDelDia, seriePorPeriodo, compararPeriodos, agruparPorDia } from '../src/lib/resumen'
 import { leerBackup, reporteHTML } from '../src/lib/exportar'
 import { ordenarVisitas } from '../src/lib/db'
 import { aDatosVisita, resumenVisitas, validarVisita } from '../src/lib/visitas'
@@ -203,5 +203,22 @@ const conAlerta = reporteHTML(
   { desde: '2026-09-01', hasta: '2026-09-30', umbral: { ...UMBRALES_POR_DEFECTO, o2Min: 90 } },
 )
 ok('el informe muestra la hora en 12 h', conAlerta.includes('9:15 PM') && !conAlerta.includes('21:15'))
+
+console.log('8. Encabezado de dia del historial')
+ok('"DD/MM - Dia de la semana"', etiquetaDia('2026-09-30') === '30/09 - Miercoles', etiquetaDia('2026-09-30'))
+ok('lunes', etiquetaDia('2026-09-28') === '28/09 - Lunes')
+ok('un dia de un solo digito', etiquetaDia('2026-10-07') === '07/10 - Miercoles', etiquetaDia('2026-10-07'))
+ok('el dia no cambia a medianoche', etiquetaDia('2026-01-01') === '01/01 - Jueves')
+
+// El historial agrupa por dia: los registros de un mismo dia van juntos y en el
+// orden pedido, sin partir un grupo entre dos paginas.
+const paraAgrupar = crearRegistrosDemo(new Date('2026-09-30T12:00:00'))
+const grupos = agruparPorDia(paraAgrupar)
+ok('agrupa sin perder registros', grupos.reduce((n, g) => n + g.registros.length, 0) === paraAgrupar.length)
+ok('cada grupo es de un unico dia', grupos.every((g) => g.registros.every((r) => r.fecha === g.fecha)))
+ok('los dias distintos no se mezclan', new Set(grupos.map((g) => g.fecha)).size === grupos.length)
+// El orden lo marca el primer registro de cada dia, que es como ya viene la lista.
+ok('conserva el orden de entrada', grupos.map((g) => g.fecha).join() === [...new Set(paraAgrupar.map((r) => r.fecha))].join())
+ok('agrupa una lista vacia sin fallar', agruparPorDia([]).length === 0)
 
 console.log(fallos === 0 ? '\nTODO CORRECTO' : `\n${fallos} FALLOS`)

@@ -1,18 +1,22 @@
 /**
  * Historial completo con filtros y busqueda.
  *
- * La tabla se pagina (25 filas por pagina) porque con varios meses de datos
- * renderizar miles de filas en el movil hace la app inutilizable. El filtrado
- * se hace en memoria: el volumen de datos de un paciente (unas cientos de
- * filas al año) no justifica indices ni paginacion en base de datos.
+ * Los registros se agrupan por dia, cada uno con su encabezado "DD/MM - Dia".
+ * Quien lleva un paciente casi siempre piensa en dias ("el martes tomaste dos
+ * veces"), no en una lista plana de filas.
+ *
+ * La paginacion va por dias, no por filas: un dia no se parte entre dos paginas,
+ * que dejaria el encabezado de un grupo abajo y sus mediciones en la siguiente.
+ * El filtrado se hace en memoria: el volumen de datos de un paciente (unas
+ * cientos de filas al año) no justifica indices ni paginacion en base de datos.
  */
 
 import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useAvisos } from '../components/Avisos'
-import { claveDia, fechaCompleta, hora12 } from '../lib/fechas'
-import { rangoTotal } from '../lib/resumen'
+import { claveDia, etiquetaDia, fechaCompleta, hora12 } from '../lib/fechas'
+import { agruparPorDia, rangoTotal } from '../lib/resumen'
 import { exportarCSV, exportarXLSX } from '../lib/exportar'
 import type { Registro } from '../lib/tipos'
 import { ListaMediciones } from '../components/Resumen'
@@ -28,7 +32,8 @@ import {
 } from '../components/Iconos'
 import { FormularioRegistro } from '../components/FormularioRapido'
 
-const POR_PAGINA = 25
+/** Dias por pagina. Un dia son unas pocas tomas, asi que 10 da paginas manejables. */
+const DIAS_POR_PAGINA = 10
 
 type Orden = 'reciente' | 'antiguo'
 
@@ -88,11 +93,15 @@ lista = lista.filter(
     return orden === 'reciente' ? lista : [...lista].reverse()
   }, [registros, busqueda, desde, hasta, soloConAlertas, orden, ajustes.umbral])
 
-  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA))
+// El agrupado por dia vive en `lib/resumen` para poder probarlo sin montar la
+  // pagina: es la logica que sostiene la paginacion por dias.
+  const grupos = useMemo(() => agruparPorDia(filtrados), [filtrados])
+
+  const totalPaginas = Math.max(1, Math.ceil(grupos.length / DIAS_POR_PAGINA))
   const paginaActual = Math.min(pagina, totalPaginas)
-  const visibles = filtrados.slice(
-    (paginaActual - 1) * POR_PAGINA,
-    paginaActual * POR_PAGINA,
+  const visibles = grupos.slice(
+    (paginaActual - 1) * DIAS_POR_PAGINA,
+    paginaActual * DIAS_POR_PAGINA,
   )
 
   const hayFiltros = Boolean(busqueda || desde || hasta || soloConAlertas)
@@ -252,7 +261,10 @@ const confirmarBorrado = (r: Registro) => {
               <span className="mb-1.5 block text-sm font-medium text-texto">Orden</span>
               <Selector
                 value={orden}
-                onChange={(e) => setOrden(e.target.value as Orden)}
+                onChange={(e) => {
+                  setOrden(e.target.value as Orden)
+                  setPagina(1)
+                }}
                 aria-label="Orden de los registros"
               >
                 <option value="reciente">Mas recientes primero</option>
@@ -285,7 +297,7 @@ const confirmarBorrado = (r: Registro) => {
           )}
         </div>
 
-        {filtrados.length === 0 ? (
+{filtrados.length === 0 ? (
           <Vacio
             icono={<IconoHistorial width={34} height={34} />}
             titulo={registros.length === 0 ? 'Sin registros' : 'Sin resultados'}
@@ -304,14 +316,30 @@ const confirmarBorrado = (r: Registro) => {
           />
         ) : (
           <>
-            <ListaMediciones
-              registros={visibles}
-              umbral={ajustes.umbral}
-              habitual={presionHabitual}
-              clase="con-fecha"
-              onEditar={setEditando}
-              onEliminar={confirmarBorrado}
-            />
+            <ul className="space-y-5">
+              {visibles.map((g) => (
+                <li key={g.fecha}>
+                  {/* Encabezado del grupo de dia: "30/09 - Miercoles" */}
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2 border-b border-borde pb-1.5">
+                    <h3 className="text-sm font-semibold text-texto">
+                      {etiquetaDia(g.fecha)}
+                    </h3>
+                    <span className="text-xs text-texto-suave">
+                      {g.registros.length}{' '}
+                      {g.registros.length === 1 ? 'medicion' : 'mediciones'}
+                    </span>
+                  </div>
+                  <ListaMediciones
+                    registros={g.registros}
+                    umbral={ajustes.umbral}
+                    habitual={presionHabitual}
+                    sinCabecera
+                    onEditar={setEditando}
+                    onEliminar={confirmarBorrado}
+                  />
+                </li>
+              ))}
+            </ul>
 
             {totalPaginas > 1 && (
               <Paginacion

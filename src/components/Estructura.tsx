@@ -3,8 +3,10 @@
  *
  * Diseno movil-first: en telefono la navegacion es una barra inferior fija con
  * botones grandes (la forma mas comoda de usar la app con una sola mano), y en
- * escritorio pasa a una barra lateral. El boton "Registrar" se destaca en el
- * centro porque es la accion mas frecuente.
+ * escritorio pasa a una barra lateral.
+ *
+ * "Registrar" no esta en la barra inferior: la accion mas frecuente tiene su
+ * propio boton flotante en Inicio, siempre a la vista y al alcance del pulgar.
  */
 
 import type { ReactNode } from 'react'
@@ -29,8 +31,13 @@ const ICONOS: Record<Ruta, (p: { width?: number; height?: number }) => ReactNode
 /** Etiqueta legible de una ruta. */
 const etiquetaDe = (r: Ruta) => RUTAS.find((x) => x.id === r)?.etiqueta ?? r
 
-/** Pestanas de la barra inferior. "Ajustes" queda en la barra superior. */
-const PRINCIPALES: Ruta[] = ['inicio', 'registrar', 'historial', 'graficas']
+/**
+ * Pestanas de la barra inferior.
+ *
+ * "Ajustes" vive en la cabecera y "Registrar" en el boton flotante de Inicio,
+ * asi que aqui solo quedan las secciones de lectura.
+ */
+const PRINCIPALES: Ruta[] = ['inicio', 'historial', 'graficas']
 
 export function Estructura({
   ruta,
@@ -79,32 +86,6 @@ export function Estructura({
         <ul className="mx-auto flex max-w-lg items-stretch">
           {PRINCIPALES.map((r) => {
             const activo = ruta === r
-            // El registro es la accion principal: boton grande y destacado.
-            if (r === 'registrar') {
-              return (
-                <li key={r} className="flex-1">
-                  <button
-                    onClick={() => onNavegar(r)}
-                    aria-current={activo ? 'page' : undefined}
-                    className={cx(
-                      'flex min-h-16 w-full flex-col items-center justify-center gap-0.5',
-                      'text-[0.7rem] font-medium transition',
-                      activo ? 'text-marca' : 'text-texto-suave',
-                    )}
-                  >
-                    <span
-                      className={cx(
-                        'grid size-9 place-items-center rounded-full text-white transition',
-                        activo ? 'bg-marca' : 'bg-marca/85',
-                      )}
-                    >
-                      <IconoMas width={22} height={22} />
-                    </span>
-                    Registrar
-                  </button>
-                </li>
-              )
-            }
             return (
               <li key={r} className="flex-1">
                 <button

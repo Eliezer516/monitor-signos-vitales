@@ -88,6 +88,7 @@ export function ListaMediciones({
   onEliminar,
   compacta,
   clase,
+  sinCabecera,
   className,
 }: {
   registros: Registro[]
@@ -100,6 +101,12 @@ export function ListaMediciones({
   compacta?: boolean
   /** `clase` fuerza a mostrar la fecha junto a la hora (historial). */
   clase?: 'con-fecha' | 'solo-hora'
+  /**
+   * Oculta la fila de titulos de columnas. En el historial la lista se pinta
+   * una vez por dia, ya con un encabezado de grupo encima, y repetir la misma
+   * cabecera de columnas en cada grupo solo ocupa sitio.
+   */
+  sinCabecera?: boolean
   className?: string
 }) {
   if (!registros.length) {
@@ -110,17 +117,19 @@ export function ListaMediciones({
     <div className={className}>
       {/* Vista de escritorio */}
       <table className="hidden w-full text-sm md:table">
-        <thead>
-          <tr className="border-b border-borde text-left text-xs text-texto-suave">
-            <th className="py-2 pr-2 font-medium">{clase === 'con-fecha' ? 'Fecha' : 'Hora'}</th>
-            <th className="py-2 pr-2 font-medium">Presion</th>
-            <th className="py-2 pr-2 font-medium">O2</th>
-            <th className="py-2 pr-2 font-medium">Pulso</th>
-            <th className="py-2 pr-2 font-medium">Orina</th>
-            {!compacta && <th className="py-2 pr-2 font-medium">Notas</th>}
-            {(onEditar || onEliminar) && <th className="py-2 font-medium" />}
-          </tr>
-        </thead>
+        {!sinCabecera && (
+          <thead>
+            <tr className="border-b border-borde text-left text-xs text-texto-suave">
+              <th className="py-2 pr-2 font-medium">{clase === 'con-fecha' ? 'Fecha' : 'Hora'}</th>
+              <th className="py-2 pr-2 font-medium">Presion</th>
+              <th className="py-2 pr-2 font-medium">O2</th>
+              <th className="py-2 pr-2 font-medium">Pulso</th>
+              <th className="py-2 pr-2 font-medium">Orina</th>
+              {!compacta && <th className="py-2 pr-2 font-medium">Notas</th>}
+              {(onEditar || onEliminar) && <th className="py-2 font-medium" />}
+            </tr>
+          </thead>
+        )}
         <tbody>
           {registros.map((r) => (
             <FilaMedicion
