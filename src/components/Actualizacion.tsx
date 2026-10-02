@@ -43,7 +43,7 @@ export function AvisoActualizacion() {
     >
       <span className="flex min-w-0 flex-1 items-center gap-2 text-sm text-texto">
         <IconoActualizar width={18} height={18} className="shrink-0 text-marca" />
-        <span>Hay una versión nueva disponible</span>
+        <span>Hay una version nueva disponible</span>
       </span>
       <div className="flex shrink-0 items-center gap-2">
         <Boton variante="primario" tamano="sm" onClick={instalar}>
@@ -68,7 +68,7 @@ export function BotonBuscarActualizacion() {
     // deja constancia en pantalla de lo que ha pasado.
     const pendiente = estadoActual().pendiente
     aviso(
-      pendiente ? 'Hay una versión nueva. Actualiza para instalarla.' : 'Ya tienes la última versión.',
+      pendiente ? 'Hay una version nueva. Actualiza para instalarla.' : 'Ya tienes la ultima version.',
       pendiente ? 'info' : 'exito',
     )
   }, [aviso])
@@ -80,7 +80,7 @@ export function BotonBuscarActualizacion() {
   if (estado.pendiente) {
     return (
       <Boton variante="primario" ancho onClick={instalar} icono={<IconoActualizar width={18} height={18} />}>
-        Instalar la versión nueva
+        Instalar la version nueva
       </Boton>
     )
   }

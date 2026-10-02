@@ -8,6 +8,7 @@ import { resumenDia, alertasDelDia, seriePorPeriodo, compararPeriodos, agruparPo
 import { leerBackup, reporteHTML } from '../src/lib/exportar'
 import { ordenarVisitas } from '../src/lib/db'
 import { aDatosVisita, resumenVisitas, validarVisita } from '../src/lib/visitas'
+import { textoMedicion, textoMediciones } from '../src/lib/texto'
 
 let fallos = 0
 function ok(nombre: string, cond: boolean, extra = '') {
@@ -220,5 +221,57 @@ ok('los dias distintos no se mezclan', new Set(grupos.map((g) => g.fecha)).size 
 // El orden lo marca el primer registro de cada dia, que es como ya viene la lista.
 ok('conserva el orden de entrada', grupos.map((g) => g.fecha).join() === [...new Set(paraAgrupar.map((r) => r.fecha))].join())
 ok('agrupa una lista vacia sin fallar', agruparPorDia([]).length === 0)
+
+console.log('9. Texto para copiar del historial')
+// El boton de copiar se usa para mandar "lo de hoy" por WhatsApp o correo. Se
+// comprueba el formato exacto porque es lo que el usuario pega en el mensaje:
+// un bloque por medicion, con la fecha y la hora arriba y un dato por linea.
+const r1 = { ...base, fecha: '2026-10-02', hora: '05:40', presionSis: 120, presionDia: 80, o2: 100, bpm: 90, orina: 200, notas: '' }
+const r2 = { ...base, fecha: '2026-10-02', hora: '20:30', presionSis: 128, presionDia: 84, o2: 93, bpm: 81, orina: null, notas: '' }
+const r3 = { ...base, fecha: '2026-09-29', hora: '00:15', presionSis: 118, presionDia: 76, o2: 97, bpm: 66, orina: 120, notas: '' }
+const r4 = { ...base, fecha: '2026-10-02', hora: '14:00', presionSis: 118, presionDia: 78, o2: 99, bpm: 74, orina: null, notas: 'Furosemida' }
+
+ok('una medicion: fecha y hora, linea en blanco y un dato por linea',
+  textoMedicion(r1) === [
+    'Viernes 2 de octubre de 2026 - 5:40 AM',
+    '',
+    'Presion: 120/80',
+    'O2: 100%',
+    'Pulso: 90',
+    'Orina: 200 ml',
+  ].join('\n'),
+  JSON.stringify(textoMedicion(r1)))
+
+ok('la orina ausente es un guion, no "null"',
+  textoMedicion(r2).includes('Orina: -') && !textoMedicion(r2).includes('null'),
+  textoMedicion(r2))
+ok('las notas van como un dato mas, con su etiqueta',
+  textoMedicion(r4).endsWith('Orina: -\nNotas: Furosemida'), textoMedicion(r4))
+ok('sin notas no se deja una linea vacia al final',
+  !textoMedicion(r1).endsWith('\n') && !textoMedicion(r1).includes('Notas'),
+  textoMedicion(r1))
+ok('medianoche en 12 h es 12 AM, no 0 AM',
+  textoMedicion(r3).includes('- 12:15 AM'), textoMedicion(r3))
+ok('un solo registro no repite la fecha en un encabezado aparte',
+  textoMediciones([r1]) === textoMedicion(r1))
+
+const dia = textoMediciones([r1, r2])
+ok('un dia: la fecha va una sola vez arriba',
+  dia.startsWith('Viernes 2 de octubre de 2026\n\n5:40 AM\n'), JSON.stringify(dia))
+ok('un dia: cada bloque lleva solo su hora',
+  dia.includes('\n\n8:30 PM\nPresion: 128/84') && !dia.includes('de 2026 - 8:30'),
+  dia)
+ok('un dia: los bloques van separados por una linea en blanco',
+  dia.split('\n\n').length === 3, JSON.stringify(dia))
+ok('un dia: conserva el orden recibido', dia.indexOf('5:40 AM') < dia.indexOf('8:30 PM'), dia)
+
+const variosDias = textoMediciones([r3, r1])
+ok('varios dias: el encabezado es el rango',
+  variosDias.startsWith('Martes 29 de septiembre de 2026 - Viernes 2 de octubre de 2026\n\n'),
+  JSON.stringify(variosDias))
+ok('varios dias: cada bloque se cierra con su fecha',
+  variosDias.includes('Martes 29 de septiembre de 2026 - 12:15 AM\n\nPresion: 118/76'),
+  variosDias)
+ok('sin registros devuelve cadena vacia', textoMediciones([]) === '')
 
 console.log(fallos === 0 ? '\nTODO CORRECTO' : `\n${fallos} FALLOS`)

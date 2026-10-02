@@ -224,3 +224,10 @@ export const IconoActualizar = (p: Props) => (
     <path d="M3 4v5h5M21 20v-5h-5" />
   </svg>
 )
+
+export const IconoCopiar = (p: Props) => (
+  <svg {...base(p)}>
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+  </svg>
+)

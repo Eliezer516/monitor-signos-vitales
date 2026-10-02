@@ -15,7 +15,7 @@ import {
 } from '../lib/rangos'
 import { haceCuanto, hora12, nombreDiaCorto } from '../lib/fechas'
 import { Insignia, PuntoEstado, Vacio, cx } from './UI'
-import { IconoAlerta, IconoCorazon, IconoGota, IconoOximetro, IconoPulso, IconoReloj } from './Iconos'
+import { IconoAlerta, IconoCopiar, IconoCorazon, IconoGota, IconoOximetro, IconoPulso, IconoReloj } from './Iconos'
 
 // ---------------------------------------------------------------------------
 // Tarjeta de metrica
@@ -86,6 +86,7 @@ export function ListaMediciones({
   habitual,
   onEditar,
   onEliminar,
+  onCopiar,
   compacta,
   clase,
   sinCabecera,
@@ -97,6 +98,8 @@ export function ListaMediciones({
   habitual?: PresionHabitual
   onEditar?: (r: Registro) => void
   onEliminar?: (r: Registro) => void
+  /** Copia la medicion como texto al portapapeles. */
+  onCopiar?: (r: Registro) => void
   /** `compacta` oculta las notas (dashboard). */
   compacta?: boolean
   /** `clase` fuerza a mostrar la fecha junto a la hora (historial). */
@@ -126,7 +129,7 @@ export function ListaMediciones({
               <th className="py-2 pr-2 font-medium">Pulso</th>
               <th className="py-2 pr-2 font-medium">Orina</th>
               {!compacta && <th className="py-2 pr-2 font-medium">Notas</th>}
-              {(onEditar || onEliminar) && <th className="py-2 font-medium" />}
+              {(onEditar || onEliminar || onCopiar) && <th className="py-2 font-medium" />}
             </tr>
           </thead>
         )}
@@ -139,6 +142,7 @@ export function ListaMediciones({
               habitual={habitual}
               onEditar={onEditar}
               onEliminar={onEliminar}
+              onCopiar={onCopiar}
               compacta={compacta}
               clase={clase}
             />
@@ -156,6 +160,7 @@ export function ListaMediciones({
             habitual={habitual}
             onEditar={onEditar}
             onEliminar={onEliminar}
+            onCopiar={onCopiar}
             compacta={compacta}
             clase={clase}
           />
@@ -185,6 +190,7 @@ function FilaMedicion({
   habitual = PRESION_HABITUAL_POR_DEFECTO,
   onEditar,
   onEliminar,
+  onCopiar,
   compacta,
   clase,
 }: {
@@ -193,6 +199,7 @@ function FilaMedicion({
   habitual?: PresionHabitual
   onEditar?: (r: Registro) => void
   onEliminar?: (r: Registro) => void
+  onCopiar?: (r: Registro) => void
   compacta?: boolean
   clase?: 'con-fecha' | 'solo-hora'
 }) {
@@ -227,7 +234,7 @@ function FilaMedicion({
           {r.notas || '-'}
         </td>
       )}
-      {(onEditar || onEliminar) && (
+      {(onEditar || onEliminar || onCopiar) && (
         <td className="py-1.5 text-right">
           <div className="flex justify-end gap-1">
             {onEditar && (
@@ -235,6 +242,9 @@ function FilaMedicion({
             )}
             {onEliminar && (
               <BotonIcono onClick={() => onEliminar(r)} titulo="Eliminar" icono="borrar" peligro />
+            )}
+            {onCopiar && (
+              <BotonIcono onClick={() => onCopiar(r)} titulo="Copiar medicion" icono="copiar" />
             )}
           </div>
         </td>
@@ -251,7 +261,7 @@ function BotonIcono({
 }: {
   onClick: () => void
   titulo: string
-  icono: 'editar' | 'borrar'
+  icono: 'editar' | 'borrar' | 'copiar'
   peligro?: boolean
 }) {
   return (
@@ -271,6 +281,8 @@ function BotonIcono({
           <path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6" />
           <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z" />
         </svg>
+      ) : icono === 'copiar' ? (
+        <IconoCopiar width={16} height={16} />
       ) : (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M3 6h18M8 6V4.5a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 16 4.5V6" />
@@ -287,6 +299,7 @@ function TarjetaMedicion({
   habitual = PRESION_HABITUAL_POR_DEFECTO,
   onEditar,
   onEliminar,
+  onCopiar,
   compacta,
   clase,
 }: {
@@ -295,6 +308,7 @@ function TarjetaMedicion({
   habitual?: PresionHabitual
   onEditar?: (r: Registro) => void
   onEliminar?: (r: Registro) => void
+  onCopiar?: (r: Registro) => void
   compacta?: boolean
   clase?: 'con-fecha' | 'solo-hora'
 }) {
@@ -311,12 +325,13 @@ function TarjetaMedicion({
           {hora12(r.hora)}
         </span>
         <div className="flex items-center gap-1">
-          {(onEditar || onEliminar) && (
+          {(onEditar || onEliminar || onCopiar) && (
             <>
               {onEditar && <BotonIcono onClick={() => onEditar(r)} titulo="Editar" icono="editar" />}
               {onEliminar && (
                 <BotonIcono onClick={() => onEliminar(r)} titulo="Eliminar" icono="borrar" peligro />
               )}
+              {onCopiar && <BotonIcono onClick={() => onCopiar(r)} titulo="Copiar medicion" icono="copiar" />}
             </>
           )}
         </div>

@@ -16,6 +16,9 @@ basico cuando se trata de datos de salud.
 - **Historial** agrupado por dia, con un encabezado "DD/MM - Dia de la semana" y
   busqueda, filtros por fecha y nivel de alerta. Edicion o borrado de cualquier
   medicion.
+- **Copiar mediciones** al portapapeles: un boton por dia y otro por medicion.
+  Pega el texto directamente en un WhatsApp o un correo, para pasar "lo de hoy"
+  sin tener que montar un archivo.
 - **Graficas** de tendencias por dia, semana y mes, con lineas de referencia de
   los umbrales configurados.
 - **Reportes** diarios, semanales y comparativos entre periodos, exportables a
@@ -131,6 +134,11 @@ cabeceras sin cache.
 - **Excel bajo demanda.** `write-excel-file` se importa de forma dinamica y en
   un chunk separado, de modo que su codigo no se descarga hasta que alguien
   exporta.
+- **Copiar != exportar.** CSV y XLSX sirven para llevarse los datos a un PC, con
+  las horas en 24 h para que se puedan ordenar. El portapapeles es para leer y
+  reenviar: un bloque por medicion en 12 h, con un dato por linea, que se lee
+  bien en un chat y se puede corregir a mano. Los dos formatos no se mezclan a
+  proposito (`lib/texto.ts` frente a `lib/exportar.ts`).
 
 ## Estructura
 

@@ -69,7 +69,7 @@ const SECCIONES: { id: Seccion; etiqueta: string; icono: React.ReactNode }[] = [
   },
   { id: 'datos', etiqueta: 'Datos', icono: <IconoDescargar width={18} height={18} /> },
   { id: 'apariencia', etiqueta: 'Apariencia', icono: <IconoLuna width={18} height={18} /> },
-  { id: 'app', etiqueta: 'Aplicación', icono: <IconoActualizar width={18} height={18} /> },
+  { id: 'app', etiqueta: 'Aplicacion', icono: <IconoActualizar width={18} height={18} /> },
 ]
 
 export function PaginaAjustes() {
@@ -942,8 +942,8 @@ function SeccionApp() {
     <div className="space-y-3">
       <BotonBuscarActualizacion />
       <p className="text-xs text-texto-suave">
-        La app guarda una copia completa en el dispositivo, así que funciona sin conexión. Cuando publicas una
-        versión nueva, se detecta al volver a abrir la app o al recuperar la conexión.
+        La app guarda una copia completa en el dispositivo, asi que funciona sin conexion. Cuando publicas una
+        version nueva, se detecta al volver a abrir la app o al recuperar la conexion.
       </p>
     </div>
   )
