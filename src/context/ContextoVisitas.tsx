@@ -22,19 +22,28 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { FechaISO, Visita } from '../lib/tipos'
-import { cargarVisitas, guardarVisitas, nuevoId, ordenarVisitas } from '../lib/db'
+import type { Borrado, FechaISO, Visita } from '../lib/tipos'
+import {
+  cargarBorrados,
+  cargarVisitas,
+  guardarVisitas,
+  nuevoId,
+  ordenarVisitas,
+  fusionarBorradosGuardados,
+  registrarBorrado,
+} from '../lib/db'
+import { emparejar, type ResultadoFusion } from '../lib/fusion'
 import { claveDia, claveHora } from '../lib/fechas'
 
-/** Datos que se piden al crear una visita; `id` y `createdAt` los pone el contexto. */
-export type DatosVisita = Omit<Visita, 'id' | 'createdAt'>
+/** Datos que se piden al crear una visita; las marcas de tiempo las pone el contexto. */
+export type DatosVisita = Omit<Visita, 'id' | 'createdAt' | 'updatedAt'>
 
 type Accion =
   | { tipo: 'cargar'; visitas: Visita[] }
   | { tipo: 'agregar'; visita: Visita }
   | { tipo: 'actualizar'; visita: Visita }
   | { tipo: 'eliminar'; id: string }
-  | { tipo: 'fusionar'; visitas: Visita[] }
+  | { tipo: 'fusionar'; visitas: Visita[]; borrados: Borrado[] }
   | { tipo: 'vaciar' }
 
 function reducer(estado: Visita[], accion: Accion): Visita[] {
@@ -44,15 +53,22 @@ function reducer(estado: Visita[], accion: Accion): Visita[] {
     case 'agregar':
       return ordenarVisitas([...estado, accion.visita])
     case 'actualizar':
-      return ordenarVisitas(estado.map((v) => (v.id === accion.visita.id ? accion.visita : v)))
+      // `id` y `createdAt` los pone el estado, no quien llama: asi ningun
+      // formulario puede reescribirlos por descuido al extender el objeto.
+      return ordenarVisitas(
+        estado.map((v) =>
+          v.id === accion.visita.id
+            ? { ...v, ...accion.visita, id: v.id, createdAt: v.createdAt }
+            : v,
+        ),
+      )
     case 'eliminar':
       return estado.filter((v) => v.id !== accion.id)
     case 'fusionar':
-      // Al restaurar un backup se conserva lo existente y se anade lo que falte.
-      return ordenarVisitas([
-        ...estado,
-        ...accion.visitas.filter((nueva) => !estado.some((v) => v.id === nueva.id)),
-      ])
+      // Last-write-wins por identificador, no "anadir solo lo que falte".
+      return ordenarVisitas(
+        emparejar(estado, accion.visitas, accion.borrados, 'visitas').fusionados,
+      )
     case 'vaciar':
       return []
   }
@@ -67,8 +83,10 @@ export interface ValorVisitas {
   eliminar: (id: string) => void
   /** Sustituye todas las visitas (uso interno y restauracion completa). */
   reemplazar: (visitas: Visita[]) => void
-  /** Anade visitas conservando las existentes. */
-  fusionar: (visitas: Visita[]) => void
+  /** Fusiona con last-write-wins; `borrados` es opcional. */
+  fusionar: (visitas: Visita[], borrados?: Borrado[]) => Promise<ResultadoFusion<Visita>>
+  /** Marcas de lo borrado en este dispositivo. */
+  borrados: Borrado[]
   vaciar: () => void
   delDia: (fecha: FechaISO) => Visita[]
 }
@@ -81,6 +99,16 @@ export function ProveedorVisitas({ children }: { children: ReactNode }) {
   // Igual que en registros: sin esto, el primer render persistiria la lista
   // vacia y borraria lo que hubiera guardado.
   const listoParaGuardar = useRef(false)
+  // Las marcas viven en su propio almacen para no alterar el estado visible.
+  const [marcas, setMarcas] = useState<Borrado[]>([])
+
+  // Ver la nota de `ContextoRegistros`: una sincronizacion tarda segundos, y sin
+  // esto una visita anadida mientras tanto desapareceria al aplicar el resultado.
+  const visitasActuales = useRef(visitas)
+  // En un efecto y no durante el render: ver la nota de `ContextoRegistros`.
+  useEffect(() => {
+    visitasActuales.current = visitas
+  })
 
   useEffect(() => {
     let cancelado = false
@@ -90,6 +118,7 @@ export function ProveedorVisitas({ children }: { children: ReactNode }) {
       setCargando(false)
       listoParaGuardar.current = true
     })
+    void cargarBorrados().then((c) => !cancelado && setMarcas(c))
     return () => {
       cancelado = true
     }
@@ -101,11 +130,10 @@ export function ProveedorVisitas({ children }: { children: ReactNode }) {
   }, [visitas])
 
   const crear = useCallback(
-    (datos: DatosVisita): Visita => ({
-      ...datos,
-      id: nuevoId(),
-      createdAt: new Date().toISOString(),
-    }),
+    (datos: DatosVisita): Visita => {
+      const ahora = new Date().toISOString()
+      return { ...datos, id: nuevoId(), createdAt: ahora, updatedAt: ahora }
+    },
     [],
   )
 
@@ -119,17 +147,37 @@ export function ProveedorVisitas({ children }: { children: ReactNode }) {
         dispatch({ tipo: 'agregar', visita: nueva })
         return nueva
       },
-      actualizar: (visita) => dispatch({ tipo: 'actualizar', visita }),
-      eliminar: (id) => dispatch({ tipo: 'eliminar', id }),
+      // La marca se pone aqui y no en el formulario, que solo ve datos.
+      actualizar: (visita) =>
+        dispatch({
+          tipo: 'actualizar',
+          visita: { ...visita, updatedAt: new Date().toISOString() },
+        }),
+      eliminar: (id) => {
+        dispatch({ tipo: 'eliminar', id })
+        // Sin la marca, la visita volveria al sincronizar desde el otro
+        // dispositivo, que sigue teniendola.
+        void registrarBorrado('visitas', id).then(setMarcas)
+      },
       reemplazar: (nuevas) => dispatch({ tipo: 'cargar', visitas: nuevas }),
-      fusionar: (nuevas) => dispatch({ tipo: 'fusionar', visitas: nuevas }),
+      fusionar: async (nuevas, borrados) => {
+        // Ver la nota en ContextoRegistros: la union se resuelve en db para
+        // no perder marcas de los demas ambitos.
+const unidas = await fusionarBorradosGuardados(borrados ?? [])
+        // Del ref, no del cierre: ver la nota de `visitasActuales`.
+        const resultado = emparejar(visitasActuales.current, nuevas, unidas, 'visitas')
+        setMarcas(unidas)
+        dispatch({ tipo: 'fusionar', visitas: nuevas, borrados: unidas })
+        return resultado
+      },
+      borrados: marcas,
       vaciar: () => dispatch({ tipo: 'vaciar' }),
       delDia: (fecha) =>
         visitas
           .filter((v) => v.fecha === fecha)
           .sort((a, b) => (a.hora ?? '').localeCompare(b.hora ?? '')),
     }),
-    [visitas, cargando, crear],
+    [visitas, cargando, crear, marcas],
   )
 
   return <ContextoVisitas.Provider value={valor}>{children}</ContextoVisitas.Provider>

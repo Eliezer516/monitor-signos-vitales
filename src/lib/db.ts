@@ -9,23 +9,30 @@
  * Los datos de salud nunca salen del dispositivo: no hay backend ni Analytic.
  */
 
-import type { Ajustes, Paciente, Registro, Visita } from './tipos'
+import type { Ajustes, Ambito, Borrado, MarcasCompartidas, Paciente, Registro, Visita } from './tipos'
 import { AJUSTES_POR_DEFECTO } from './rangos'
 import { claveDia } from './fechas'
+import { fusionarBorrados as fusionarBorradosLocales } from './fusion'
 
 const DB_NOMBRE = 'signos-vitales'
-// v2: se anade el store de visitas. La v1 no lo tenia; `onupgradeneeded` crea
-// el store nuevo sin tocar los existentes, de modo que los datos ya guardados
+// v2: se anade el store de visitas.
+// v3: se anade el store de borrados, que guarda las marcas de lo que se borro
+// en cualquier dispositivo para que el borrado tambien viaje al sincronizar.
+// La v1 no tenia el de visitas ni el de borrados; `onupgradeneeded` crea los
+// stores nuevos sin tocar los existentes, de modo que los datos ya guardados
 // sobreviven a la actualizacion.
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_REGISTROS = 'registros'
 const STORE_VISITAS = 'visitas'
+const STORE_BORRADOS = 'borrados'
 const STORE_CLAVE = 'clave-valor'
 
 const LS_REGISTROS = 'msv:registros'
 const LS_VISITAS = 'msv:visitas'
 const LS_AJUSTES = 'msv:ajustes'
 const LS_PACIENTES = 'msv:pacientes'
+const LS_BORRADOS = 'msv:borrados'
+const LS_MARCAS = 'msv:marcas-compartidas'
 
 /** Lee y parsea JSON de localStorage devolviendo `null` ante cualquier error. */
 function leer<T>(clave: string): T | null {
@@ -83,6 +90,13 @@ function abrirDB(): Promise<IDBDatabase | null> {
         }
         if (!db.objectStoreNames.contains(STORE_CLAVE)) {
           db.createObjectStore(STORE_CLAVE)
+        }
+        if (!db.objectStoreNames.contains(STORE_BORRADOS)) {
+          // Clave compuesta ambito+id: un mismo id puede existir en registros y
+          // en visitas sin que un borrado de uno arrase al otro.
+          db.createObjectStore(STORE_BORRADOS, {
+            keyPath: ['ambito', 'id'],
+          })
         }
       }
       req.onsuccess = () => {
@@ -217,6 +231,76 @@ async function guardarLista<T>(store: string, filas: T[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Borrados
+// ---------------------------------------------------------------------------
+
+/**
+ * Marcas de lo que se ha borrado, que son las que hacen que el borrado viaje al
+ * otro dispositivo en vez de reaparecer.
+ *
+ * A diferencia de `cargarRegistros`, aqui no se compara el espejo por longitud.
+ * Alli "la lista mas larga es la buena" porque son los mismos registros. Una
+ * lista de borrados mas corta puede ser la correcta (hemos purgado marcas
+ * antiguas) y una mas larga tambien, asi que la longitud no dice nada: manda
+ * IndexedDB y el espejo solo se usa si la base no esta disponible.
+ */
+export async function cargarBorrados(): Promise<Borrado[]> {
+  const db = await abrirDB()
+  if (db) {
+    try {
+      return await transaccion<Borrado[]>(db, STORE_BORRADOS, 'readonly', (s) => s.getAll())
+    } catch {
+      // Si IndexedDB falla a mitad, usamos el espejo.
+    }
+  }
+  return leer<Borrado[]>(LS_BORRADOS) ?? []
+}
+
+export async function guardarBorrados(borrados: Borrado[]): Promise<void> {
+  escribir(LS_BORRADOS, borrados)
+  await guardarLista(STORE_BORRADOS, borrados)
+}
+
+/**
+ * Anota un borrado sin tocar el almacen desde los contextos.
+ *
+ * Se expone por separado de `eliminar` porque cada contexto borra su propio
+ * almacen, pero la marca va al mismo sitio para que `lib/fusion` pueda reunir
+ * los tres ambitos en un solo paquete.
+ */
+export async function registrarBorrado(ambito: Ambito, id: string): Promise<Borrado[]> {
+  const actuales = await cargarBorrados()
+  const otros = actuales.filter((b) => !(b.ambito === ambito && b.id === id))
+  const marca: Borrado = { ambito, id, borradoAt: new Date().toISOString() }
+  const siguiente = [...otros, marca]
+  await guardarBorrados(siguiente)
+  return siguiente
+}
+
+/**
+ * Une los borrados que llegan de fuera (de Drive o de un backup) con los que ya
+ * hay y deja el resultado escrito.
+ *
+ * Va en `db.ts` y no en los contextos por dos motivos:
+ *
+ * - Los tres ambitos comparten el mismo store, asi que hay que leer lo que hay
+ *   de verdad. Si cada contexto fusionara contra su propia copia en memoria,
+ *   el segundo en fusionar taparia al primero y se perderian marcas.
+ * - Leer y guardar por separado deja un hueco entre medias. Si en ese hueco
+ *   borra otra cosa, ese borrado se perderia al escribir la lista entera.
+ *
+ * Devuelve la lista unida ya persistida, que es la que hay que usar para
+ * limpiar registros, visitas o pacientes.
+ */
+export async function fusionarBorradosGuardados(entrantes: Borrado[]): Promise<Borrado[]> {
+  const actuales = await cargarBorrados()
+  if (entrantes.length === 0) return actuales
+  const unidas = fusionarBorradosLocales(actuales, entrantes)
+  await guardarBorrados(unidas)
+  return unidas
+}
+
+// ---------------------------------------------------------------------------
 // Ajustes y pacientes
 // ---------------------------------------------------------------------------
 
@@ -260,11 +344,37 @@ export async function guardarAjustes(ajustes: Ajustes): Promise<void> {
 }
 
 export async function cargarPacientes(): Promise<Paciente[]> {
-  return leer<Paciente[]>(LS_PACIENTES) ?? []
+  return (leer<Paciente[]>(LS_PACIENTES) ?? []).map(normalizarPaciente)
 }
 
 export async function guardarPacientes(pacientes: Paciente[]): Promise<void> {
   escribir(LS_PACIENTES, pacientes)
+}
+
+/**
+ * Los pacientes se guardaban con `creadoAt` mientras que registros y visitas
+ * usaban `createdAt`. Al unificarlos en `Sincronizable` hay que traducir el
+ * nombre, y aprovechar para rellenar `createdAt` de los que vinieron de una
+ * version todavia mas antigua, que no tenian ninguna marca.
+ */
+export function normalizarPaciente(p: Paciente): Paciente {
+  const { creadoAt, ...resto } = p as Paciente & { creadoAt?: string }
+  return { ...resto, createdAt: p.createdAt ?? creadoAt ?? '1970-01-01T00:00:00.000Z' }
+}
+
+/**
+ * Ultima modificacion de cada campo de Ajustes que si se comparte.
+ *
+ * Se guarda aparte del propio valor para no meter `updatedAt` dentro de
+ * `Umbrales` ni de `Limites`, que tambien los usan los reportes y las pruebas
+ * como estructuras de datos planas.
+ */
+export function cargarMarcas(): MarcasCompartidas {
+  return leer<MarcasCompartidas>(LS_MARCAS) ?? {}
+}
+
+export function guardarMarcas(marcas: MarcasCompartidas): void {
+  escribir(LS_MARCAS, marcas)
 }
 
 /** Ordena por fecha y hora descendentes: lo mas reciente primero. */

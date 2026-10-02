@@ -6,10 +6,21 @@
  * impresion del navegador resuelve mejor. El usuario elige "Guardar como PDF".
  */
 
-import type { Paciente, PresionHabitual, Registro, Umbrales, Visita } from './tipos'
+import type {
+  AjustesCompartidos,
+  Borrado,
+  MarcasCompartidas,
+  Paciente,
+  PresionHabitual,
+  Registro,
+  Umbrales,
+  Visita,
+} from './tipos'
 import { claveDia, fechaCompleta, hora12 } from './fechas'
+import { normalizarPaciente } from './db'
 import { resumenDia } from './resumen'
 import { CABECERA_VISITAS, ETIQUETA_VISITA, filaVisita } from './visitas'
+import { CAMPOS_COMPARTIDOS } from './fusion'
 
 /** Descarga un Blob como archivo. */
 function descargar(blob: Blob, nombre: string): void {
@@ -157,39 +168,98 @@ export async function exportarXLSX(
 /**
  * Formato del archivo de backup, versionado para restaurarlo en el futuro.
  *
- * La v2 anade `visitas`. Se declara `visitas?` porque un backup v1 (generado
- * antes de que existiera la pantalla) no tiene esa clave y debe seguir
- * restaurando mediciones y pacientes sin fallar.
+ * Es tambien el formato que se sube a Drive, a proposito: tener dos formatos
+ * significaria que una correccion en la fusion llegase a un sitio y no al otro.
+ *
+ * - v1: solo registros y pacientes.
+ * - v2: anade `visitas`.
+ * - v3: anade `borrados` (para que un borrado viaje), `ajustes` y `marcas` (la
+ *   parte de los ajustes que es igual en todos los dispositivos).
+ *
+ * Las tres claves nuevas son opcionales porque un backup v1 o v2 no las tiene y
+ * debe seguir restaurando. Igual pasa dentro de cada registro: los antiguos no
+ * traen `updatedAt`, y `lib/fusion` los trata como si su marca fuera su
+ * `createdAt`, de modo que no se pierde nada al subir la version del formato.
  */
 export interface Backup {
-  version: 1 | 2
+  version: 1 | 2 | 3
   exportadoEn: string
   app: 'signos-vitales'
   registros: Registro[]
   pacientes: Paciente[]
-  /** Presente solo en backups v2. */
+  /** Presente desde v2. */
   visitas?: Visita[]
+  /** Presente desde v3. Marcas de lo que se borro, para propagar el borrado. */
+  borrados?: Borrado[]
+  /** Presente desde v3. Solo la parte de Ajustes que se comparte. */
+  ajustes?: AjustesCompartidos
+  /** Presente desde v3. Ultima modificacion de cada campo de `ajustes`. */
+  marcas?: MarcasCompartidas
+}
+
+/** Datos que se guardan en un backup, tal y como los da cada contexto. */
+export interface DatosBackup {
+  registros: Registro[]
+  pacientes: Paciente[]
+  visitas?: Visita[]
+  borrados?: Borrado[]
+  ajustes?: AjustesCompartidos
+  marcas?: MarcasCompartidas
+}
+
+/** Monta el backup en memoria, sin descargarlo. Lo usan exportar y Drive. */
+export function construirBackup(datos: DatosBackup): Backup {
+  return {
+    version: 3,
+    exportadoEn: new Date().toISOString(),
+    app: 'signos-vitales',
+    registros: datos.registros,
+    pacientes: datos.pacientes,
+    visitas: datos.visitas ?? [],
+    borrados: datos.borrados ?? [],
+    ...(datos.ajustes ? { ajustes: datos.ajustes } : {}),
+    ...(datos.marcas ? { marcas: datos.marcas } : {}),
+  }
+}
+
+/** Nombre de archivo con la fecha, para que varios backups se ordenen solos. */
+export function nombreBackup(fecha = new Date()): string {
+  const dia = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(
+    fecha.getDate(),
+  ).padStart(2, '0')}`
+  return `signos-vitales-${dia}`
 }
 
 /** Descarga un backup completo en JSON, restaurable desde Ajustes. */
-export function exportarBackup(
-  registros: Registro[],
-  pacientes: Paciente[],
-  visitas: Visita[] = [],
-  nombreArchivo = 'backup-signos-vitales',
-): void {
-  const backup: Backup = {
-    version: 2,
-    exportadoEn: new Date().toISOString(),
-    app: 'signos-vitales',
-    registros,
-    pacientes,
-    visitas,
-  }
+export function exportarBackup(datos: DatosBackup, nombre = nombreBackup()): void {
   descargar(
-    new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }),
-    `${nombreArchivo}.json`,
+    new Blob([JSON.stringify(construirBackup(datos), null, 2)], { type: 'application/json' }),
+    `${nombre}.json`,
   )
+}
+
+/**
+ * Comparte el backup con otra app sin descargarlo antes.
+ *
+ * En movil abre la hoja de compartir del sistema, donde Drive aparece como
+ * destino.
+ * Se apoya en un clic del usuario, que es lo que exige la API de compartir, y no
+ * necesita ningun permiso: por eso funciona antes de conectar la cuenta.
+ */
+export async function compartirBackup(
+  datos: DatosBackup,
+  nombre = nombreBackup(),
+): Promise<'compartido' | 'no-soportado'> {
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
+  if (typeof nav.share !== 'function' || typeof nav.canShare !== 'function') return 'no-soportado'
+  const archivo = new File(
+    [JSON.stringify(construirBackup(datos), null, 2)],
+    `${nombre}.json`,
+    { type: 'application/json' },
+  )
+  if (!nav.canShare({ files: [archivo] })) return 'no-soportado'
+  await nav.share({ files: [archivo], title: 'Backup de signos vitales' })
+  return 'compartido'
 }
 
 /**
@@ -223,9 +293,16 @@ export function leerBackup(texto: string): {
   registros: Registro[]
   pacientes: Paciente[]
   visitas: Visita[]
+  borrados: Borrado[]
+  ajustes: Partial<AjustesCompartidos> | null
+  marcas: MarcasCompartidas
 } {
   const datos = JSON.parse(texto)
   if (!datos || typeof datos !== 'object') throw new Error('Archivo no valido')
+
+  /** `updatedAt` solo si es una cadena; si no, se deja ausente a proposito. */
+  const marca = (c: Record<string, unknown>): { updatedAt?: string } =>
+    typeof c.updatedAt === 'string' && c.updatedAt ? { updatedAt: c.updatedAt } : {}
 
   const crudos: unknown[] = Array.isArray(datos.registros) ? datos.registros : []
   const registros: Registro[] = crudos
@@ -261,10 +338,13 @@ export function leerBackup(texto: string): {
         notas: typeof c.notas === 'string' ? c.notas : '',
         createdAt:
           typeof c.createdAt === 'string' ? c.createdAt : `${c.fecha}T${c.hora}:00`,
+        ...marca(c),
       }
     })
 
-  const pacientes = Array.isArray(datos.pacientes) ? (datos.pacientes as Paciente[]) : []
+  const pacientes: Paciente[] = (Array.isArray(datos.pacientes) ? datos.pacientes : [])
+    .filter((p: unknown) => p && typeof p === 'object' && typeof (p as Paciente).nombre === 'string')
+    .map((p: unknown) => normalizarPaciente(p as Paciente & { creadoAt?: string }))
 
   // Las visitas se validan con la misma politica que los registros: se descarta
   // la que este mal formada en vez de rechazar el archivo entero. Una visita sin
@@ -298,10 +378,95 @@ export function leerBackup(texto: string): {
         notas: texto(c.notas),
         createdAt:
           typeof c.createdAt === 'string' ? c.createdAt : `${c.fecha}T${texto(c.hora) || '12:00'}:00`,
+        ...marca(c),
       }
     })
 
-  return { registros, pacientes, visitas }
+  // Las marcas de borrado llegan de un backup v3. Un v1 o v2 no las tiene y no
+  // tiene nada que borrar mas alla de lo que ya no esta, asi que se devuelven
+  // vacias en vez de inventarlas.
+  const borrados: Borrado[] = (Array.isArray(datos.borrados) ? datos.borrados : []).filter(
+    (b: unknown): b is Borrado =>
+      !!b &&
+      typeof b === 'object' &&
+      typeof (b as Borrado).id === 'string' &&
+      typeof (b as Borrado).borradoAt === 'string' &&
+      ((b as Borrado).ambito === 'registros' ||
+        (b as Borrado).ambito === 'visitas' ||
+        (b as Borrado).ambito === 'pacientes'),
+  )
+
+  const { ajustes, marcas } = leerAjustesCompartidos(datos)
+
+  return { registros, pacientes, visitas, borrados, ajustes, marcas }
+}
+
+/**
+ * Un registro plano de numeros, como `Umbrales`, `Limites` o `PresionHabitual`.
+ *
+ * Se comprueba la forma y no la lista de claves a proposito: las claves estan
+ * en `tipos.ts` y `rangos.ts`, ycopiarlas aqui seria una tercera lista que
+ * alguien tendria que acordarse de actualizar.
+ */
+function esRegistroDeNumeros(valor: unknown): boolean {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return false
+  const claves = Object.keys(valor as Record<string, unknown>)
+  if (!claves.length) return false
+  return claves.every((c) => {
+    const v = (valor as Record<string, unknown>)[c]
+    return typeof v === 'number' && Number.isFinite(v)
+  })
+}
+
+/** Lista de plantillas de nota utilizable. */
+function esListaDePlantillas(valor: unknown): boolean {
+  if (!Array.isArray(valor)) return false
+  return valor.every((p) => {
+    if (!p || typeof p !== 'object') return false
+    const c = p as Record<string, unknown>
+    return typeof c.id === 'string' && typeof c.texto === 'string'
+  })
+}
+
+/**
+ * Ajustes y marcas compartidas de un backup, ya saneados.
+ *
+ * Sin esto, un `ajustes.umbral` que fuera una cadena llegaria tal cual a
+ * `setAjuste` y reventaria al pintar `ajustes.umbral.o2Min`. Descartar el campo
+ * en vez de todo el archivo es lo razonable: el resto del backup sigue siendo
+ * recuperable y el ajuste cae al valor por defecto.
+ *
+ * Una marca sin su valor tambien se descarta. Si se conservara, `fusionarAjustes`
+ * haria que ganara el remoto y asignaria `undefined` sobre un ajuste bueno.
+ *
+ * @returns `ajustes` es `null` si no queda ningun campo utilizable.
+ */
+function leerAjustesCompartidos(datos: Record<string, unknown>): {
+  ajustes: Partial<AjustesCompartidos> | null
+  marcas: MarcasCompartidas
+} {
+  const crudos = (datos.ajustes ?? {}) as Record<string, unknown>
+  const crudasMarcas = (datos.marcas ?? {}) as Record<string, unknown>
+  if (typeof crudos !== 'object' || Array.isArray(crudos)) return { ajustes: null, marcas: {} }
+
+  const ajustes: Record<string, unknown> = {}
+  const marcas: MarcasCompartidas = {}
+  for (const campo of CAMPOS_COMPARTIDOS) {
+    const valor = crudos[campo]
+    const bueno = campo === 'plantillas' ? esListaDePlantillas(valor) : esRegistroDeNumeros(valor)
+    if (!bueno) continue
+    ajustes[campo] = campo === 'plantillas' ? valor : { ...(valor as object) }
+    // La marca solo cuenta si es una fecha real: `fusionarAjustes` ordena
+    // marcas como texto, y un "ayer" haria que el campo perdiera o ganara de
+    // forma arbitraria.
+    const marca = crudasMarcas[campo]
+    if (typeof marca === 'string' && Number.isFinite(Date.parse(marca))) marcas[campo] = marca
+  }
+
+  return {
+    ajustes: Object.keys(ajustes).length ? (ajustes as Partial<AjustesCompartidos>) : null,
+    marcas,
+  }
 }
 
 /** Genera el HTML del reporte medico para imprimir o guardar como PDF. */

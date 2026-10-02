@@ -56,13 +56,89 @@ npm run preview    # sirve dist/ para comprobar el resultado
 
 ### Otros comandos
 
-| Comando            | Que hace                                        |
-| ------------------ | ----------------------------------------------- |
-| `npm run typecheck`| Comprueba los tipos sin generar nada             |
-| `npm run lint`     | Analisis estatico (oxlint)                       |
-| `npm test`         | Pruebas de la logica pura (rangos, fechas, visitas, backup)|
-| `npm run test:sw`  | Pruebas del service worker (necesita `npm run build` antes)|
-| `npm run iconos`   | Regenera los iconos PNG de la PWA                |
+| Comando             | Que hace                                        |
+| ------------------- | ----------------------------------------------- |
+| `npm run typecheck` | Comprueba los tipos sin generar nada             |
+| `npm run lint`      | Analisis estatico (oxlint)                       |
+| `npm test`          | Pruebas de la logica pura (rangos, fechas, visitas, backup)|
+| `npm run test:todo` | Todas las suites de pruebas                      |
+| `npm run test:sw`   | Pruebas del service worker (necesita `npm run build` antes)|
+| `npm run iconos`    | Regenera los iconos PNG de la PWA                |
+
+Las suites sueltas tambien se pueden lanzar por separado: `test:fusion`
+(union de datos), `test:db` (persistencia de borrados), `test:sync` (ciclo de
+Drive con la red simulada) y `test:sw`.
+
+## Sincronizar entre dispositivos
+
+Los datos se guardan siempre en el dispositivo. Ademas, se pueden copiar a otro
+dispositivo de dos formas:
+
+### 1. Backup manual (sin configurar nada)
+
+En **Ajustes > Datos** esta "Descargar copia de seguridad" y "Restaurar". El
+archivo es un JSON que se puede mandar por el medio que sea: correo, WhatsApp,
+nube. Funciona con la app recien instalada y sin conexion a la hora de
+restaurar. Es la opcion que no depende de ninguna configuracion externa.
+
+### 2. Google Drive (opcional)
+
+En **Ajustes > Aplicacion > Sincronizacion con Drive**, si el despliegue tiene
+la variable `VITE_GOOGLE_CLIENT_ID` definida. Para habilitarla:
+
+1. Copia `.env.example` como `.env.local`.
+2. Rellena `VITE_GOOGLE_CLIENT_ID` con el identificador de un cliente de tipo
+   "Web" de Google Cloud, con la API de Drive activada y los origenes de la app
+   autorizados. Las instrucciones paso a paso estan en el propio `.env.example`.
+
+Sin esa variable la app funciona igual y el boton aparece desactivado,
+explicando por que.
+
+Es un identificador publico, no un secreto: se incrusta en el paquete. La app no
+usa "Client secret" porque no tiene servidor.
+
+#### Que se sincroniza
+
+| Dato                                      | Se sincroniza |
+| ----------------------------------------- | ------------- |
+| Signos vitales                            | Si            |
+| Visitas                                   | Si            |
+| Pacientes                                 | Si            |
+| Umbrales, limites, presion habitual y plantillas de nota | Si |
+| Borrados                                  | Si, de forma propagada |
+| Tema, recordatorio, paciente activo y fecha del ultimo backup | No, son de cada dispositivo |
+
+#### Como funciona
+
+El boton "Sincronizar ahora" hace un ciclo completo: **descargar, fusionar y
+subir**. No hay sincronizacion en segundo plano, y no la va a haber sin un
+servidor, por dos motivos que conviene tener presentes:
+
+- **No hay refresh token.** Google solo concede tokens de larga duracion a
+  aplicaciones de servidor. En el navegador el permiso caduca **aproximadamente
+  cada hora**, asi que pulsar el boton puede abrir la ventana de Google para
+  volver a autorizar. Es lo esperado, no un fallo.
+- **El boton es el unico sitio donde se puede pedir ese permiso**, porque exige
+  un toque. Por eso no hay ninguna tarea programada ni temporizador que
+  intente autorizar por su cuenta.
+
+Cuando los dos dispositivos han cambiado el mismo registro, gana el mas
+nuevo (last-write-wins). Si el contenido es identico, gana el local. Cuando un
+dispositivo borra algo, ese borrado viaja como un *tombstone* para que no
+resucite en el otro, y se limpia a los 90 dias.
+
+#### Lo que hay que tener en cuenta
+
+- **Desinstalar la aplicacion puede borrar la carpeta de Drive.** Google trata
+  la carpeta oculta de la aplicacion como parte de ella. Por eso el boton de
+  descargar copia sigue disponible, y conviene descargar de vez en cuando.
+- **No se borra nada automaticamente.** Si el fichero de Drive esta
+  danado o pertenece a otra aplicacion, la sincronizacion se detiene y avisa, en
+  vez de sobrescribirlo: ese fichero puede ser la unica copia de datos que aun
+  no estan en este dispositivo. Aparece entonces un boton "Olvidar copia de
+  Drive" para borrarlo a proposito.
+- **El token vive en `sessionStorage`.** Al cerrar la pestaña se olvida, que es
+  justo lo que cabe en una app sin backend.
 
 ## Instalar como aplicacion
 
@@ -112,11 +188,21 @@ cabeceras sin cache.
   terceros: los componentes son propios para mantener el bundle pequeno.
 - **Datos locales.** IndexedDB es el almacen principal (soporta cientos o miles
   de mediciones); localStorage actua de espejo y de respaldo si IndexedDB no
-  esta disponible. No hay backend ni sincronizacion en la nube.
+  esta disponible. No hay backend. La copia entre dispositivos es opcional y la
+  hace la persona, con un backup manual o con Drive (ver "Sincronizar entre
+  dispositivos").
 - **Una base por tipo de dato.** Cada contexto tiene su almacen y su store
-  (`registros`, `ajustes`, `visitas`), todos en la misma base IndexedDB. Asi una
-  lista vacia o corrupta en un tipo de dato no puede tirar abajo los demas.
-  El backup JSON es un unico archivo con las tres cosas.
+  (`registros`, `ajustes`, `visitas`, `borrados`), todos en la misma base
+  IndexedDB. Asi una lista vacia o corrupta en un tipo de dato no puede tirar
+  abajo los demas. El backup JSON es un unico archivo con todo.
+- **Fusionar, no restaurar.** Dos dispositivos se combinan con
+  `lib/fusion.ts`: por identificador gana la version mas reciente
+  (last-write-wins), un empate exacto gana el local, y los borrados viajan como
+  *tombstones* para que no reaparezcan. La copia de Drive es siempre la union de
+  los dos, no la foto de uno. `lib/fusion.ts` trabaja con datos y `lib/drive.ts`
+  con el fichero; los ajustes compartidos se fusionan campo a campo con su
+  propia marca de tiempo, y el resto (tema, recordatorio, paciente activo) se
+  queda en cada dispositivo.
 - **Fechas en hora local.** Se guardan como texto (`AAAA-MM-DD` y `HH:MM`) y se
   reconstruyen con `new Date(ano, mes-1, dia, ...)`. Usar `toISOString()`
   correria el dia cerca de medianoche, que es justo cuando se anota.
@@ -148,9 +234,9 @@ src/
   context/      Estado global (registros, visitas y ajustes) con useReducer
   hooks/        Enrutado por hash y hooks de fecha
   lib/          Logica pura: rangos, fechas, resumen, persistencia, exportacion,
-                y actualizacion del service worker
+                fusion de datos, Google Drive y actualizacion del service worker
   pages/        Inicio, Historial, Graficas, Visitas, Reportes, Ajustes
-public/        Manifest, service worker e iconos
+public/         Manifest, service worker e iconos
 tools/          Pruebas y scripts de mantenimiento (generacion de iconos)
 ```
 

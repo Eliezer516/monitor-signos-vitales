@@ -7,13 +7,14 @@
  * un muro de campos.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAjustes, plantillasSugeridas } from '../context/ContextoAjustes'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useVisitas } from '../context/ContextoVisitas'
 import { useAvisos } from '../components/Avisos'
 import { BotonBuscarActualizacion } from '../components/Actualizacion'
-import { exportarBackup, leerBackup } from '../lib/exportar'
+import { SeccionSincronizacion } from '../components/Sincronizacion'
+import { compartirBackup, exportarBackup, leerBackup, type DatosBackup } from '../lib/exportar'
 import { indexedDBDisponible } from '../lib/db'
 import { crearRegistrosDemo } from '../lib/demo'
 import { claveDia, claveHora, fechaCorta, hora12 } from '../lib/fechas'
@@ -49,6 +50,7 @@ import {
   IconoActualizar,
   IconoAjustes,
   IconoCheck,
+  IconoCompartir,
   IconoDescargar,
   IconoLuna,
   IconoMas,
@@ -712,9 +714,9 @@ export function useRecordatoriosActivos() {
 // ---------------------------------------------------------------------------
 
 function SeccionDatos() {
-  const { registros, fusionar, vaciar, cargando } = useRegistros()
+  const { registros, fusionar, vaciar, cargando, borrados } = useRegistros()
   const { visitas, fusionar: fusionarVisitas, vaciar: vaciarVisitas } = useVisitas()
-  const { pacientes, ajustes, setAjuste, fusionarPacientes } = useAjustes()
+  const { pacientes, ajustes, setAjuste, fusionarPacientes, aplicarAjustesRemotos, marcas, ajustesCompartidos } = useAjustes()
   const { aviso } = useAvisos()
   const [confirmando, setConfirmando] = useState(false)
   const refArchivo = useRef<HTMLInputElement>(null)
@@ -724,36 +726,88 @@ function SeccionDatos() {
     void indexedDBDisponible().then(setIdb)
   }, [])
 
+  // `navigator.canShare` con ficheros no esta en todos los navegadores, y la
+  // comprobacion depende del archivo, asi que se decide al montar en lugar de
+  // en cada pulsacion. Va en estado con inicializador perezoso y no en un ref
+  // porque leer `.current` durante el render rompe la actualizacion del componente.
+  const [puedeCompartir] = useState(
+    () =>
+      typeof navigator !== 'undefined' &&
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function',
+  )
+
+  // Un unico objeto para el backup y para el archivo de Drive: si divergieran,
+  // uno de los dos se quedaria atras al sincronizar.
+  const datosBackup = useMemo<DatosBackup>(
+    () => ({ registros, pacientes, visitas, borrados, ajustes: ajustesCompartidos, marcas }),
+    [registros, pacientes, visitas, borrados, ajustesCompartidos, marcas],
+  )
+
   const restaurar = (archivo: File) => {
     const lector = new FileReader()
-    lector.onload = () => {
+    // `async` porque las fusiones devuelven una promesa: la union de borrados se
+    // resuelve contra el almacen, no en memoria.
+    lector.onload = async () => {
       try {
         const {
           registros: importados,
           pacientes: pacientesImportados,
           visitas: visitasImportadas,
+          borrados,
+          ajustes: ajustesImportados,
+          marcas: marcasImportadas,
         } = leerBackup(String(lector.result))
-        if (!importados.length && !pacientesImportados.length && !visitasImportadas.length) {
+        // Se rechazan los archivos que no traen nada utilizable. Un backup solo
+        // de borrados o solo de ajustes es valido: es justo lo que genera un
+        // dispositivo donde solo se ha borrado algo o solo se ha tocado un
+        // umbral, y rechazarlo perderia esos cambios sin avisar.
+        if (
+          !importados.length &&
+          !pacientesImportados.length &&
+          !visitasImportadas.length &&
+          !borrados.length &&
+          !ajustesImportados
+        ) {
           aviso('El archivo no contiene datos validos', 'error')
           return
         }
 
-        if (importados.length) fusionar(importados)
-        if (visitasImportadas.length) fusionarVisitas(visitasImportadas)
-        const nuevosPacientes = fusionarPacientes(pacientesImportados)
+        // Se calculan las tres fusiones antes de despachar para poder contar lo
+        // que ha pasado: los contextos devuelven el resultado, pero despues ya
+        // no se puede saber cuantos elementos traia el archivo. Las tres son
+        // `await` porque la union de borrados se resuelve contra el almacen.
+        const fusionRegistros = await fusionar(importados, borrados)
+        const fusionVisitas = await fusionarVisitas(visitasImportadas, borrados)
+        const fusionPacientes = await fusionarPacientes(pacientesImportados, borrados)
+        const camposAjustes = ajustesImportados
+          ? aplicarAjustesRemotos(ajustesImportados, marcasImportadas)
+          : 0
 
         // Un unico aviso resume la operacion: si se avisa dos veces se puede
         // perder el primero, que es el que confirma que el archivo se leyo.
+        // `entrados` y no el total del archivo: si el backup lo genero este mismo
+        // dispositivo, Restaurar no debe fingir que ha traido datos nuevos.
         const partes = [
-          importados.length ? `${importados.length} mediciones` : null,
-          visitasImportadas.length ? `${visitasImportadas.length} visitas` : null,
-          nuevosPacientes ? `${nuevosPacientes} pacientes` : null,
+          fusionRegistros.entraron ? `${fusionRegistros.entraron} mediciones nuevas` : null,
+          fusionVisitas.entraron ? `${fusionVisitas.entraron} visitas nuevas` : null,
+          fusionPacientes.entraron ? `${fusionPacientes.entraron} pacientes nuevos` : null,
+          camposAjustes ? `${camposAjustes} ajustes actualizados` : null,
         ].filter(Boolean)
-        aviso(
-          partes.length
-            ? `Backup restaurado: ${partes.join(', ')}`
-            : 'Backup restaurado: todo ya estaba guardado',
-        )
+        if (partes.length) aviso(`Backup restaurado: ${partes.join(', ')}`)
+        else aviso('Backup restaurado: todo ya estaba guardado')
+
+        // Aviso aparte, porque es lo unico que hace DESAPARECER datos y tiene
+        // que poder verse bien: una medicion editada en el otro sitio se
+        // sustituye por la version mas nueva, y si no se dice, parece un fallo.
+        const perdidos = fusionRegistros.pisados + fusionVisitas.pisados
+        const borradas = fusionRegistros.borradosAplicados + fusionVisitas.borradosAplicados
+        if (perdidos) {
+          aviso(`${perdidos} elementos se actualizaron con la version mas nueva del archivo`, 'info')
+        }
+        if (borradas) {
+          aviso(`${borradas} mediciones que estaban aqui ya no estan en el backup`, 'info')
+        }
       } catch {
         aviso('Archivo ilegible o con formato incorrecto', 'error')
       }
@@ -781,7 +835,7 @@ function SeccionDatos() {
       <Boton
         ancho
         onClick={() => {
-          exportarBackup(registros, pacientes, visitas)
+          exportarBackup(datosBackup)
           setAjuste('ultimoBackup', new Date().toISOString())
           aviso('Backup descargado')
         }}
@@ -789,6 +843,28 @@ function SeccionDatos() {
       >
         Descargar backup (JSON)
       </Boton>
+
+      {/* En movil abre la hoja de compartir del sistema, donde Drive aparece
+          como destino: sirve para dejar el backup en Drive sin conectar la
+          cuenta ni dar ningun permiso. */}
+      {puedeCompartir && (
+        <Boton
+          ancho
+          variante="secundario"
+          onClick={() => {
+            void compartirBackup(datosBackup).then((r) => {
+              if (r === 'compartido') {
+                setAjuste('ultimoBackup', new Date().toISOString())
+                aviso('Backup compartido')
+              }
+            })
+          }}
+          icono={<IconoCompartir width={18} height={18} />}
+        >
+          Guardar en Drive
+        </Boton>
+      )}
+
       {ajustes.ultimoBackup && (
         <p className="-mt-2 text-center text-xs text-texto-suave">
           Ultimo backup:{' '}
@@ -822,9 +898,9 @@ function SeccionDatos() {
       />
 
       <p className="text-xs text-texto-suave">
-        Al restaurar se anaden las mediciones, las visitas y los pacientes del archivo
-        a los existentes; no se borra nada. Si hay datos con el mismo
-        identificador, se conservan los tuyos.
+        Al restaurar se fusionan las mediciones, las visitas y los pacientes del archivo con los
+        tuyos, y no se borra nada. Si el mismo elemento existe en los dos sitios, se queda la
+        version modificada mas recientemente y te avisamos de cuantos han cambiado.
       </p>
 
       {/* Solo aparece si no hay nada guardado: ayuda a entender la app sin
@@ -945,6 +1021,7 @@ function SeccionApp() {
         La app guarda una copia completa en el dispositivo, asi que funciona sin conexion. Cuando publicas una
         version nueva, se detecta al volver a abrir la app o al recuperar la conexion.
       </p>
+      <SeccionSincronizacion />
     </div>
   )
 }

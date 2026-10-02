@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Variables de entorno locales. El identificador de cliente de Google no es
+# un secreto, pero no tiene sentido que cada cual lo suba al repositorio.
+.env
+.env.*
+!.env.example

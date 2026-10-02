@@ -16,9 +16,45 @@ export type FechaISO = string
 /** Hora en formato 24h, p. ej. "23:15". Se muestra con `hora12`. */
 export type Hora = string
 
-/** Un registro de signos vitales. */
-export interface Registro {
+/**
+ * Base de todo lo que viaja entre dispositivos.
+ *
+ * Sin una marca de modificacion no hay forma de saber cual de dos versiones es
+ * la buena, asi que al restaurar un backup "gana lo que ya esta en el
+ * dispositivo" y una edicion hecha en otro movil se pierde en silencio. Por eso
+ * los tres campos son opcionales: los datos guardados antes de existir esto no
+ * los tienen, y `lib/fusion` los trata como si su `updatedAt` fuese su
+ * `createdAt`.
+ */
+export interface Sincronizable {
   id: string
+  /** ISO completo de creacion, para ordenar y depurar. */
+  createdAt: string
+  /** ISO de la ultima modificacion. Ausente en datos anteriores a la sincronizacion. */
+  updatedAt?: string
+}
+
+/** Ambito de datos al que pertenece un borrado. */
+export type Ambito = 'registros' | 'visitas' | 'pacientes'
+
+/**
+ * Marca de que algo se borro, para que el borrado tambien viaje a los demas
+ * dispositivos.
+ *
+ * Se guarda en un almacen aparte y no marcandolo sobre el propio registro, para
+ * que ningun `useRegistros().registros` cambie de comportamiento: un registro
+ * borrado desaparece de la interfaz igual que hasta ahora, y ademas queda la
+ * marca para que no reaparezca al sincronizar desde el otro dispositivo.
+ */
+export interface Borrado {
+  ambito: Ambito
+  id: string
+  /** ISO del borrado. Decide quien gana, igual que `updatedAt` en un registro. */
+  borradoAt: string
+}
+
+/** Un registro de signos vitales. */
+export interface Registro extends Sincronizable {
   /** Dia local al que pertenece la medicion. */
   fecha: FechaISO
   /** Hora local de la medicion, "HH:MM". */
@@ -35,8 +71,6 @@ export interface Registro {
   orina: number | null
   /** Notas libres: medicamentos, actividades, sintomas. */
   notas: string
-  /** ISO completo de creacion, para ordenar y depurar. */
-  createdAt: string
   /** Marca los registros cargados desde los datos de ejemplo. */
   ejemplo?: boolean
 }
@@ -91,8 +125,7 @@ export interface PresionHabitual {
 }
 
 /** Datosbasicos del paciente. Opcional para permitir uno solo. */
-export interface Paciente {
-  id: string
+export interface Paciente extends Sincronizable {
   nombre: string
   /** Fecha de nacimiento "YYYY-MM-DD". */
   nacimiento?: FechaISO
@@ -103,7 +136,6 @@ export interface Paciente {
    * Ajustes, para no tener que repetirla en cada ficha.
    */
   presionHabitual?: PresionHabitual
-  creadoAt: string
 }
 
 /** Donde se produjo el encuentro con el profesional sanitario. */
@@ -123,8 +155,7 @@ export type TipoVisita = 'consulta' | 'domicilio'
  * al levantarse se ve ahi y no en consulta), mientras que la consulta aporta
  * pruebas y recetas.
  */
-export interface Visita {
-  id: string
+export interface Visita extends Sincronizable {
   /** Dia local de la visita. */
   fecha: FechaISO
   /** Hora local de la visita, "HH:MM". Opcional: muchas se rescriben a posteriori. */
@@ -138,8 +169,6 @@ export interface Visita {
   indicaciones: string
   /** Notas libres de la visita. */
   notas: string
-  /** ISO completo de creacion, para ordenar y depurar. */
-  createdAt: string
   /** Marca las visitas cargadas desde los datos de ejemplo. */
   ejemplo?: boolean
 }
@@ -208,6 +237,30 @@ export interface Ajustes {
   /** Ultimo backup automatico, ISO. */
   ultimoBackup: string | null
 }
+
+/**
+ * Parte de los ajustes que si significa lo mismo en todos los dispositivos.
+ *
+ * `Ajustes` entero NO se sincroniza, y no por capricho: mezcla lo compartido con
+ * lo que es de cada pantalla. `tema`, `recordatorio` y sobre todo
+ * `pacienteActivo` son de la maquina que esta delante de la pantalla, y
+ * sincronizarlos haria que el paciente seleccionado saltase de un dispositivo a
+ * otro. Ademas, el bloque entero con last-write-wins haria que dos dispositivos
+ * ajustando umbrales distintos se pisasen en silencio. Por eso se sincroniza
+ * campo a campo, no como un bloque.
+ */
+export interface AjustesCompartidos {
+  umbral: Umbrales
+  limites: Limites
+  presionHabitual: PresionHabitual
+  plantillas: PlantillaNota[]
+}
+
+/** Campo de `AjustesCompartidos` sujeto a last-write-wins. */
+export type CampoCompartido = keyof AjustesCompartidos
+
+/** Ultima modificacion de cada campo compartido, ISO por clave de campo. */
+export type MarcasCompartidas = Partial<Record<CampoCompartido, string>>
 
 /** Alerta emitida al revisar un registro o el resumen de un dia. */
 export interface Alerta {

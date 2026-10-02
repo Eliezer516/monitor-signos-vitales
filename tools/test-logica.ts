@@ -5,7 +5,7 @@ import { PRESION_HABITUAL_POR_DEFECTO, bandaNormal } from '../src/lib/rangos'
 import { claveDia, sumarDias, aDate, claveHora, inicioSemana, hora12, etiquetaDia } from '../src/lib/fechas'
 import { UMBRALES_POR_DEFECTO, LIMITES_POR_DEFECTO } from '../src/lib/rangos'
 import { resumenDia, alertasDelDia, seriePorPeriodo, compararPeriodos, agruparPorDia } from '../src/lib/resumen'
-import { leerBackup, reporteHTML } from '../src/lib/exportar'
+import { construirBackup, leerBackup, nombreBackup, reporteHTML } from '../src/lib/exportar'
 import { ordenarVisitas } from '../src/lib/db'
 import { aDatosVisita, resumenVisitas, validarVisita } from '../src/lib/visitas'
 import { textoMedicion, textoMediciones } from '../src/lib/texto'
@@ -104,6 +104,49 @@ ok('orina ausente queda null', leido.registros.every(r => r.orina === null))
 ok('genera id si falta', leido.registros.every(r => typeof r.id === 'string' && r.id.length > 0))
 ok('conserva pacientes', leido.pacientes.length === 1)
 ok('un backup v1 sin clave "visitas" no rompe la lectura', leido.visitas.length === 0)
+// Un backup v1 no trae `borrados`, `ajustes` ni `marcas`. Deben salir vacios,
+// no inventarse: si se supusiera algo, un backup antiguo podria borrar datos.
+ok('un backup v1 no inventa marcas de borrado', leido.borrados.length === 0)
+ok('un backup v1 no inventa ajustes', leido.ajustes === null)
+ok('un backup v1 no inventa marcas de ajustes', Object.keys(leido.marcas).length === 0)
+// `creadoAt` era el nombre antiguo; se traduce a `createdAt` al leer.
+ok('traduce creadoAt a createdAt', leido.pacientes[0]?.createdAt === '2026-01-01')
+
+console.log('5b. Backup v3: marcas, borrados y ajustes')
+const v3 = JSON.stringify({
+  version: 3,
+  app: 'signos-vitales',
+  exportadoEn: '2026-10-02T10:00:00.000Z',
+  registros: [{ id: 'r1', fecha: '2026-10-01', hora: '08:00', presionSis: 120, presionDia: 80, o2: 97, bpm: 70, orina: null, notas: '', createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T09:00:00.000Z' }],
+  visitas: [],
+  pacientes: [],
+  borrados: [
+    { ambito: 'registros', id: 'r9', borradoAt: '2026-10-01T10:00:00.000Z' },
+    { ambito: 'inventado', id: 'r8', borradoAt: '2026-10-01T10:00:00.000Z' },
+    { ambito: 'visitas', id: 'v8' },
+  ],
+  ajustes: { umbral: { o2Min: 93 } },
+  marcas: { umbral: '2026-10-01T11:00:00.000Z' },
+})
+const leidoV3 = leerBackup(v3)
+ok('conserva updatedAt', leidoV3.registros[0]?.updatedAt === '2026-10-01T09:00:00.000Z')
+ok('descarta una marca con ambito desconocido', leidoV3.borrados.length === 1, `(${leidoV3.borrados.length})`)
+ok('descarta una marca sin fecha', leidoV3.borrados.every((b) => b.ambito === 'registros'))
+ok('lee los ajustes compartidos', leidoV3.ajustes?.umbral.o2Min === 93)
+ok('lee las marcas de ajustes', leidoV3.marcas.umbral === '2026-10-01T11:00:00.000Z')
+// Sin `updatedAt` se deja ausente en vez de inventarse, para que `lib/fusion`
+// siga tratando el registro como antiguo.
+const sinMarca = leerBackup(JSON.stringify({ version: 3, app: 'signos-vitales', registros: [{ fecha: '2026-10-01', hora: '08:00', presionSis: 120, presionDia: 80, o2: 97, bpm: 70 }] }))
+ok('no inventa updatedAt', sinMarca.registros[0]?.updatedAt === undefined)
+ok('pero pone createdAt a partir de fecha y hora', sinMarca.registros[0]?.createdAt === '2026-10-01T08:00:00')
+
+console.log('5c. El backup que genera la app se vuelve a leer igual')
+const idaYVuelta = construirBackup({ registros: leidoV3.registros, pacientes: leidoV3.pacientes, visitas: [], borrados: leidoV3.borrados, ajustes: leidoV3.ajustes ?? undefined, marcas: leidoV3.marcas })
+const releido = leerBackup(JSON.stringify(idaYVuelta))
+ok('conserva version 3', idaYVuelta.version === 3)
+ok('los registros sobreviven el viaje', JSON.stringify(releido.registros) === JSON.stringify(leidoV3.registros))
+ok('los borrados sobreviven el viaje', releido.borrados.length === leidoV3.borrados.length)
+ok('el nombre de archivo lleva la fecha', /^signos-vitales-\d{4}-\d{2}-\d{2}$/.test(nombreBackup(new Date('2026-10-02T00:00:00'))))
 
 console.log('6. Visitas del profesional sanitario')
 const visitaBuena = { fecha: '2026-09-28', hora: '10:15', tipo: 'consulta' as const, motivo: 'Revision de la tension', profesional: 'Dra. Garcia', indicaciones: '', notas: '' }
