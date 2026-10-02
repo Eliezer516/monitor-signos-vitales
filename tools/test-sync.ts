@@ -11,6 +11,10 @@
 
 import { RemotoDanado, esPaqueteValido, olvidarRemoto, resumirCambios, sincronizar } from '../src/lib/sincronizar'
 import { construirBackup, leerBackup } from '../src/lib/exportar'
+import { clientId, driveConfigurado } from '../src/lib/google'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 import type { AjustesCompartidos, Borrado, MarcasCompartidas, Paciente, Registro, Visita } from '../src/lib/tipos'
 import { AJUSTES_POR_DEFECTO } from '../src/lib/rangos'
 
@@ -370,6 +374,37 @@ console.log('14. Un backup que solo trae borrados es valido')
 }
 // Se devuelve el `fetch` real antes de resumir, para que nada de lo que se
 // imprima a partir de aqui salga por una red simulada.
+console.log('15. El nombre de la variable de entorno coincide en todas partes')
+{
+  // Vite solo incrusta las variables con prefijo `VITE_`. Si el codigo lee un
+  // nombre y el `.env` define otro, todo compila, `tsc` da el visto bueno
+  // (porque `ImportMetaEnv` se puede declarar a medida) y en el navegador el
+  // valor es `undefined`: la seccion de Drive se queda desactivada para siempre
+  // sin que nada falle. Estos cuatro nombres tienen que ser el mismo.
+  const raiz = fileURLToPath(new URL('../', import.meta.url))
+  const leer = (ruta: string) => readFileSync(resolve(raiz, ruta), 'utf8')
+  const espera = /VITE_GOOGLE_CLIENT_ID/
+
+  ok('lo lee google.ts con el prefijo', espera.test(leer('src/lib/google.ts')))
+  ok('lo declara vite-env.d.ts', espera.test(leer('src/vite-env.d.ts')))
+  ok('lo documenta .env.example', espera.test(leer('.env.example')))
+  ok('lo documenta el README', espera.test(leer('README.md')))
+  // `google.ts` no debe quedarse con el nombre sin prefijo, que es el que
+  // provoked el fallo.
+  ok('y no queda ninguna lectura sin prefijo', !/import\.meta\.env\.GOOGLE_CLIENT_ID/.test(leer('src/lib/google.ts')))
+}
+
+console.log('16. El estado de configuracion sale solo del client id')
+{
+  // No se comprueba el valor concreto porque depende del `.env` de quien
+  // ejecuta las pruebas. Lo que importa es que los dos funciones sean
+  // coherentes entre si y que ninguna lance: asi, un despliegue sin configurar
+  // desactiva la seccion en vez de romperse al abrir Ajustes.
+  ok('driveConfigurado es exactamente "hay client id"', driveConfigurado() === (clientId() !== ''))
+  ok('clientId nunca es undefined', typeof clientId() === 'string')
+  ok('sin espacios ni comillas', clientId() === clientId().trim() && !clientId().includes('"'))
+}
+
 globalThis.fetch = fetchOriginal
 
 console.log(fallos === 0 ? '\nTODO CORRECTO' : `\n${fallos} FALLOS de ${total}`)

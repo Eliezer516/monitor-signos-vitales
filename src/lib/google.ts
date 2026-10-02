@@ -88,9 +88,21 @@ declare global {
 
 let cargando: Promise<Gis> | null = null;
 
-/** El client ID, o cadena vacia si la app se desplego sin configurar Drive. */
+/**
+ * El client ID, o cadena vacia si la app se desplego sin configurar Drive.
+ *
+ * El prefijo `VITE_` no es opcional: Vite solo incrusta en el bundle las
+ * variables que lo llevan. Sin el, `import.meta.env` da `undefined` en el
+ * navegador, `driveConfigurado()` siempre da `false` y la seccion de Drive
+ * nunca se activa, aunque el `.env.local` este bien puesto.
+ *
+ * Que quede incrustado no es un problema: un identificador de cliente OAuth de
+ * tipo "Web" es publico por definicion y va escrito en la URL de consentimiento
+ * de Google. Lo que no debe aparecer aqui es el "Client secret", y esta app no
+ * lo necesita porque no hay servidor.
+ */
 export function clientId(): string {
-  return import.meta.env.GOOGLE_CLIENT_ID ?? "";
+  return import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '';
 }
 
 /** Si falta el client ID, la parte de Drive se oculta en vez de romperse. */
