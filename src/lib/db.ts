@@ -278,7 +278,7 @@ export async function registrarBorrado(ambito: Ambito, id: string): Promise<Borr
 }
 
 /**
- * Une los borrados que llegan de fuera (de Drive o de un backup) con los que ya
+ * Une los borrados que llegan de fuera (de la replica o de un backup) con los que ya
  * hay y deja el resultado escrito.
  *
  * Va en `db.ts` y no en los contextos por dos motivos:

@@ -1,25 +1,26 @@
 /**
- * Ciclo de sincronizacion con Drive.
+ * Fusion de datos entre dispositivos.
  *
- * La propiedad de seguridad de todo este modulo, y lo unico que hay que
- * conservar por encima de todo lo demas:
+ * Aqui ya no vive ningun transporte: no hay red, ni tokens, ni peticiones. Solo
+ * queda la parte que decide que version de un dato gana cuando dos dispositivos
+ * han escrito lo mismo, y esa parte es la que hay que conservar por encima de
+ * todo lo demas:
  *
  *   **Lo local es la fuente de verdad y NUNCA se sobrescribe con lo remoto.**
  *
- * El fichero de Drive es un objetivo de fusion, no una copia que se restaure
+ * Lo que viene de fuera es un objetivo de fusion, no una copia que se restaure
  * encima. La diferencia importa cuando dos dispositivos escriben a la vez: el
  * perdedor conserva todo en su IndexedDB y lo vuelve a subir en el siguiente
  * ciclo, de modo que no hay perdida permanente. Si esto se cambiara por un
  * "descargar y sustituir", dos sincronizaciones simultaneas destruirian datos sin
  * avisar.
  *
- * Y como Drive v3 no tiene escritura condicional, el ciclo es siempre
- * leer -> fusionar -> escribir. No se puede hacer en una sola operacion atomica
- * porque la API no la ofrece.
+ * El transporte es lo unico que se cambia: la replica contra Turso ya no pasa
+ * por un fichero JSON unico sino por filas en una base de datos, pero las reglas
+ * de aqui son las mismas y no hay que volver a escribirlas.
  */
 
-import { construirBackup, leerBackup, type Backup } from './exportar'
-import * as drive from './drive'
+import { construirBackup, type Backup } from './exportar'
 import {
   CAMPOS_COMPARTIDOS,
   emparejar,
@@ -47,44 +48,51 @@ export interface EstadoLocal {
   marcas: MarcasCompartidas
 }
 
-/** Contenido de un fichero de Drive ya validado. */
-type Remoto = {
-  registros: Registro[]
-  visitas: Visita[]
-  pacientes: Paciente[]
-  borrados: Borrado[]
-  ajustes: Partial<AjustesCompartidos> | null
-  marcas: MarcasCompartidas
+/**
+ * Lo que viene de fuera, ya leido y con la forma que sea.
+ *
+ * `ajustes` y las colecciones pueden faltar porque el otro lado es una version
+ * antigua o todavia no ha enviado nada: `null` significa "no hay", no "vacio".
+ * En eso se distingue de `EstadoLocal`, donde todo existe siempre.
+ */
+export interface EstadoRemoto {
+  registros?: Registro[]
+  visitas?: Visita[]
+  pacientes?: Paciente[]
+  borrados?: Borrado[]
+  ajustes?: Partial<AjustesCompartidos> | null
+  marcas?: MarcasCompartidas
 }
 
-/** Lo que ha cambiado en la ultima sincronizacion, para contarselo al usuario. */
+/** Lo que ha cambiado en la ultima fusion, para contarselo a la persona. */
 export interface ResumenSincronizacion {
   registros: ResultadoFusion<Registro>
   visitas: ResultadoFusion<Visita>
   pacientes: ResultadoFusion<Paciente>
   /** Campos de ajustes compartidos que han cambiado de verdad. */
   ajustes: number
-  /** Datos que estaban solo aqui y se han subido. */
+  /**
+   * Datos que estaban solo en este dispositivo y por tanto hay que enviar.
+   *
+   * Contarlos como enviados y no como perdida es el matiz de `enviables`: no se
+   * ha perdido nada, simplemente esta parte todavia no ha salido del telefono.
+   */
   enviados: number
-  /** Si el fichero no existia en Drive y se acaba de crear. */
-  creado: boolean
-  /** Epoch en ms de la subida. */
-  cuando: number
 }
 
 /** Las colecciones que puede traer un paquete, y que tienen que ser listas. */
 const COLECCIONES = ['registros', 'visitas', 'pacientes', 'borrados'] as const
 
 /**
- * Comprueba que un fichero descargado es nuestro y tiene la forma esperada antes
+ * Comprueba que un texto es un paquete nuestro y tiene la forma esperada antes
  * de fiarse de el.
  *
- * No basta con mirar `app` y `version`. Un fichero con `registros` como cadena,
+ * No basta con mirar `app` y `version`. Un paquete con `registros` como cadena,
  * o con `borrados` de objetos sin `id`, pasaria una comprobacion superficial y
  * luego `leerBackup` lo devolveria tal cual: los tombstones basura acabarian
  * escritos en el almacen y `fusionarAjustes` compararia marcas que no son
- * fechas. Como el fichero de Drive es lo unico que separa los dos dispositivos,
- * esto es lo que evita que un fichero damaged toque datos clinicos.
+ * fechas. Como lo que llega de fuera es lo unico que separa los dos
+ * dispositivos, esto es lo que evita que un paquete danado toque datos clinicos.
  */
 export function esPaqueteValido(bruto: string): boolean {
   if (!bruto.trim()) return false
@@ -159,58 +167,24 @@ function esAjustesCompartidos(valor: unknown): boolean {
   })
 }
 
-/** Error de un fichero remoto que existe pero no se puede usar. */
-export class RemotoDanado extends Error {
-  constructor() {
-    super(
-      'La copia de Drive esta danada y no se ha tocado nada. Puedes borrar esa copia con "Olvidar copia de Drive" y volver a sincronizar.',
-    )
-    this.name = 'RemotoDanado'
-  }
-}
-
-/** Descarga y valida el fichero de Drive. `null` si no hay todavia. */
-async function descargarRemoto(token: string): Promise<Remoto | null> {
-  const fichero = await drive.descargar(token)
-  if (!fichero) return null
-
-  if (!esPaqueteValido(fichero.texto)) {
-    // Aqui se lanza error en lugar de tratar el fichero como si no existiera.
-    // Sobrescribirlo perderia lo que contuviera sin que nadie se entere, y un
-    // backup puede ser la unica copia de unos datos que todavia no estan en este
-    // dispositivo. `olvidarRemoto` es la salida, y es una decision de la
-    // persona, no un efecto secundario de haber pulsado sincronizar.
-    throw new RemotoDanado()
-  }
-
-  // Se reutiliza el lector del backup: es el mismo formato y no tiene sentido
-  // tener dos reglas de validacion que se puedan desincronizar.
-  const leido = leerBackup(fichero.texto)
-  return {
-    registros: leido.registros,
-    visitas: leido.visitas,
-    pacientes: leido.pacientes,
-    borrados: leido.borrados,
-    ajustes: leido.ajustes,
-    marcas: leido.marcas,
-  }
-}
-
 /**
- * Ejecuta una sincronizacion completa y devuelve el paquete ya fusionado.
+ * Une lo local con lo de fuera y devuelve el paquete resultante.
  *
- * El token se le pasa ya caducado o vigente porque la decision de reautentificar
- * es de la UI, que es quien puede exigir el clic que Google necesita.
+ * Funcion pura: no lee ni escribe nada, y no depende de donde vengan los datos
+ * de fuera. Devuelve el paquete ya fusionado, que es lo que hay que guardar en
+ * el destino y a la vez dejar en pantalla.
  *
- * Si el fichero remoto esta danado, lanza `RemotoDanado` sin subir nada. Los
- * datos locales no se tocan nunca antes de que la subida haya terminado bien.
+ * Lo que se devuelve es lo ya fusionado y no lo que habia antes: el destino tiene
+ * que dejar de ser la foto de un dispositivo para pasar a ser la union. Si se
+ * guardara lo local sin fusionar, cada ciclo perderia lo del otro.
+ *
+ * `remoto` en `null` significa que el otro lado aun no tiene nada, que es lo que
+ * pasa la primera vez. No es un error: el resultado es el estado local intacto.
  */
-export async function sincronizar(
+export function fusionarPaquetes(
   local: EstadoLocal,
-  token: string,
-): Promise<{ resumen: ResumenSincronizacion; paquete: Backup }> {
-  const remoto = await descargarRemoto(token)
-
+  remoto: EstadoRemoto | null,
+): { resumen: ResumenSincronizacion; paquete: Backup } {
   const borrados = fusionarBorrados(local.borrados, remoto?.borrados ?? [])
   const registros = emparejar(local.registros, remoto?.registros ?? [], borrados, 'registros')
   const visitas = emparejar(local.visitas, remoto?.visitas ?? [], borrados, 'visitas')
@@ -222,9 +196,6 @@ export async function sincronizar(
     remoto?.marcas ?? {},
   )
 
-  // Se sube lo ya fusionado y no lo que habia antes: el fichero de Drive tiene
-  // que dejar de ser la foto de un dispositivo para pasar a ser la union. Si se
-  // subiera lo local sin fusionar, cada ciclo perderia lo del otro.
   const paquete = construirBackup({
     registros: registros.fusionados,
     visitas: visitas.fusionados,
@@ -233,7 +204,6 @@ export async function sincronizar(
     ajustes: ajustes.ajustes,
     marcas: ajustes.marcas,
   })
-  const { nuevo } = await drive.guardar(token, JSON.stringify(paquete, null, 2))
 
   return {
     paquete,
@@ -242,26 +212,12 @@ export async function sincronizar(
       visitas,
       pacientes,
       ajustes: ajustes.pisados,
-      enviados:
-        registros.enviables + visitas.enviables + pacientes.enviables,
-      creado: nuevo,
-      cuando: Date.now(),
+      enviados: registros.enviables + visitas.enviables + pacientes.enviables,
     },
   }
 }
 
-/**
- * Borra el fichero de Drive.
- *
- * Solo para el boton de "olvidar la copia remota". Los datos locales no se tocan:
- * esto olvida la copia de Drive, no los datos del dispositivo.
- */
-export async function olvidarRemoto(token: string): Promise<void> {
-  const id = await drive.buscarFichero(token)
-  if (id) await drive.borrar(token, id)
-}
-
-/** Texto corto con lo que ha cambiado, para el aviso de la UI. */
+/** Texto corto con lo que ha cambiado, para el aviso de quien lo ve. */
 export function resumirCambios(r: ResumenSincronizacion): string {
   const partes: string[] = []
   const nuevos = r.registros.entraron + r.visitas.entraron + r.pacientes.entraron

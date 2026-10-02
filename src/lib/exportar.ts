@@ -168,8 +168,9 @@ export async function exportarXLSX(
 /**
  * Formato del archivo de backup, versionado para restaurarlo en el futuro.
  *
- * Es tambien el formato que se sube a Drive, a proposito: tener dos formatos
- * significaria que una correccion en la fusion llegase a un sitio y no al otro.
+* Es tambien el formato con el que viaja una replica entre dispositivos, a
+ * proposito: tener dos formatos significaria que una correccion en la fusion
+ * llegase a un sitio y no al otro.
  *
  * - v1: solo registros y pacientes.
  * - v2: anade `visitas`.
@@ -207,7 +208,7 @@ export interface DatosBackup {
   marcas?: MarcasCompartidas
 }
 
-/** Monta el backup en memoria, sin descargarlo. Lo usan exportar y Drive. */
+/** Monta el backup en memoria, sin descargarlo. Lo usan exportar y la replica. */
 export function construirBackup(datos: DatosBackup): Backup {
   return {
     version: 3,
@@ -241,10 +242,10 @@ export function exportarBackup(datos: DatosBackup, nombre = nombreBackup()): voi
 /**
  * Comparte el backup con otra app sin descargarlo antes.
  *
- * En movil abre la hoja de compartir del sistema, donde Drive aparece como
- * destino.
+* En movil abre la hoja de compartir del sistema, donde se elige el destino:
+ * correo, Drive, WhatsApp, el disco...
  * Se apoya en un clic del usuario, que es lo que exige la API de compartir, y no
- * necesita ningun permiso: por eso funciona antes de conectar la cuenta.
+ * necesita ningun permiso.
  */
 export async function compartirBackup(
   datos: DatosBackup,

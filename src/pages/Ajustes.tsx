@@ -13,7 +13,7 @@ import { useRegistros } from '../context/ContextoRegistros'
 import { useVisitas } from '../context/ContextoVisitas'
 import { useAvisos } from '../components/Avisos'
 import { BotonBuscarActualizacion } from '../components/Actualizacion'
-import { SeccionSincronizacion } from '../components/Sincronizacion'
+
 import { compartirBackup, exportarBackup, leerBackup, type DatosBackup } from '../lib/exportar'
 import { indexedDBDisponible } from '../lib/db'
 import { crearRegistrosDemo } from '../lib/demo'
@@ -737,8 +737,8 @@ function SeccionDatos() {
       typeof navigator.canShare === 'function',
   )
 
-  // Un unico objeto para el backup y para el archivo de Drive: si divergieran,
-  // uno de los dos se quedaria atras al sincronizar.
+  // Un unico objeto para el backup manual y para la replica: si divergieran, uno
+  // de los dos se quedaria atras al sincronizar.
   const datosBackup = useMemo<DatosBackup>(
     () => ({ registros, pacientes, visitas, borrados, ajustes: ajustesCompartidos, marcas }),
     [registros, pacientes, visitas, borrados, ajustesCompartidos, marcas],
@@ -844,9 +844,9 @@ function SeccionDatos() {
         Descargar backup (JSON)
       </Boton>
 
-      {/* En movil abre la hoja de compartir del sistema, donde Drive aparece
-          como destino: sirve para dejar el backup en Drive sin conectar la
-          cuenta ni dar ningun permiso. */}
+      {/* En movil abre la hoja de compartir del sistema, donde se puede elegir
+          el destino: correo, Drive, WhatsApp, el disco... No hace falta conectar
+          ninguna cuenta ni dar ningun permiso. */}
       {puedeCompartir && (
         <Boton
           ancho
@@ -861,7 +861,7 @@ function SeccionDatos() {
           }}
           icono={<IconoCompartir width={18} height={18} />}
         >
-          Guardar en Drive
+          Compartir backup
         </Boton>
       )}
 
@@ -1021,7 +1021,6 @@ function SeccionApp() {
         La app guarda una copia completa en el dispositivo, asi que funciona sin conexion. Cuando publicas una
         version nueva, se detecta al volver a abrir la app o al recuperar la conexion.
       </p>
-      <SeccionSincronizacion />
     </div>
   )
 }

@@ -64,81 +64,144 @@ npm run preview    # sirve dist/ para comprobar el resultado
 | `npm run test:todo` | Todas las suites de pruebas                      |
 | `npm run test:sw`   | Pruebas del service worker (necesita `npm run build` antes)|
 | `npm run iconos`    | Regenera los iconos PNG de la PWA                |
+| `npm run db:generate` | Regenera el SQL de migraciones tras tocar el esquema |
+| `npm run db:migrate`  | Aplica las migraciones a la base de datos        |
+| `npm run db:comprobar`| Comprueba que el esquema esta en la base (solo lee) |
+| `npm run db:probar`   | Prueba de escritura real. **Borra sus propias filas** |
+| `npm run db:studio`   | Abre el explorador de la base de datos          |
 
 Las suites sueltas tambien se pueden lanzar por separado: `test:fusion`
-(union de datos), `test:db` (persistencia de borrados), `test:sync` (ciclo de
-Drive con la red simulada) y `test:sw`.
+(union de datos), `test:db` (persistencia de borrados), `test:sincronizar`
+(fusion entre dispositivos), `test:db-turso` (esquema y replica contra una base
+SQLite real) y `test:sw`.
 
 ## Sincronizar entre dispositivos
 
-Los datos se guardan siempre en el dispositivo. Ademas, se pueden copiar a otro
-dispositivo de dos formas:
+Los datos se guardan siempre en el dispositivo. Para tenerlos en otro sitio hay
+dos caminos:
 
 ### 1. Backup manual (sin configurar nada)
 
-En **Ajustes > Datos** esta "Descargar copia de seguridad" y "Restaurar". El
-archivo es un JSON que se puede mandar por el medio que sea: correo, WhatsApp,
-nube. Funciona con la app recien instalada y sin conexion a la hora de
-restaurar. Es la opcion que no depende de ninguna configuracion externa.
+En **Ajustes > Datos** esta "Descargar backup (JSON)", "Restaurar" y
+"Compartir backup". El archivo es un JSON que se puede mandar por el medio que
+sea: correo, WhatsApp, o el servicio de archivos que se use. Funciona con la app recien instalada y sin conexion
+a la hora de restaurar. Es la opcion que no depende de ninguna configuracion
+externa, y la unica que funciona hoy.
 
-### 2. Google Drive (opcional)
+### 2. Base de datos Turso (en preparacion)
 
-En **Ajustes > Aplicacion > Sincronizacion con Drive**, si el despliegue tiene
-la variable `VITE_GOOGLE_CLIENT_ID` definida. Para habilitarla:
+El esquema ya existe y esta probado, pero **la replica todavia no esta conectada
+a la app**: no hay codigo que lea ni escriba en la base. Lo que hay montado son
+las 6 tablas, las migraciones y el cliente, que es lo que falta para poder
+conectar el ciclo de fusion.
 
-1. Copia `.env.example` como `.env.local`.
-2. Rellena `VITE_GOOGLE_CLIENT_ID` con el identificador de un cliente de tipo
-   "Web" de Google Cloud, con la API de Drive activada y los origenes de la app
-   autorizados. Las instrucciones paso a paso estan en el propio `.env.example`.
+Ver la seccion siguiente para el detalle del esquema y como ponerlo en marcha.
 
-Sin esa variable la app funciona igual y el boton aparece desactivado,
-explicando por que.
+### Que se replica cuando exista
 
-Es un identificador publico, no un secreto: se incrusta en el paquete. La app no
-usa "Client secret" porque no tiene servidor.
-
-#### Que se sincroniza
-
-| Dato                                      | Se sincroniza |
-| ----------------------------------------- | ------------- |
-| Signos vitales                            | Si            |
-| Visitas                                   | Si            |
-| Pacientes                                 | Si            |
+| Dato                                      | Se replica   |
+| ----------------------------------------- | ------------ |
+| Signos vitales                            | Si           |
+| Visitas                                   | Si           |
+| Pacientes                                 | Si           |
 | Umbrales, limites, presion habitual y plantillas de nota | Si |
 | Borrados                                  | Si, de forma propagada |
 | Tema, recordatorio, paciente activo y fecha del ultimo backup | No, son de cada dispositivo |
 
-#### Como funciona
-
-El boton "Sincronizar ahora" hace un ciclo completo: **descargar, fusionar y
-subir**. No hay sincronizacion en segundo plano, y no la va a haber sin un
-servidor, por dos motivos que conviene tener presentes:
-
-- **No hay refresh token.** Google solo concede tokens de larga duracion a
-  aplicaciones de servidor. En el navegador el permiso caduca **aproximadamente
-  cada hora**, asi que pulsar el boton puede abrir la ventana de Google para
-  volver a autorizar. Es lo esperado, no un fallo.
-- **El boton es el unico sitio donde se puede pedir ese permiso**, porque exige
-  un toque. Por eso no hay ninguna tarea programada ni temporizador que
-  intente autorizar por su cuenta.
-
-Cuando los dos dispositivos han cambiado el mismo registro, gana el mas
-nuevo (last-write-wins). Si el contenido es identico, gana el local. Cuando un
+Cuando dos dispositivos han cambiado lo mismo, gana el mas nuevo
+(last-write-wins). Si el contenido es identico, gana el local. Cuando un
 dispositivo borra algo, ese borrado viaja como un *tombstone* para que no
 resucite en el otro, y se limpia a los 90 dias.
 
-#### Lo que hay que tener en cuenta
+Estas reglas viven en `src/lib/sincronizar.ts` y son puro: no saben de donde
+vienen los datos ni como se guardan. Por eso las comparten el backup manual y la
+replica, y por eso no habria que volver a escribirlas al conectar Turso.
 
-- **Desinstalar la aplicacion puede borrar la carpeta de Drive.** Google trata
-  la carpeta oculta de la aplicacion como parte de ella. Por eso el boton de
-  descargar copia sigue disponible, y conviene descargar de vez en cuando.
-- **No se borra nada automaticamente.** Si el fichero de Drive esta
-  danado o pertenece a otra aplicacion, la sincronizacion se detiene y avisa, en
-  vez de sobrescribirlo: ese fichero puede ser la unica copia de datos que aun
-  no estan en este dispositivo. Aparece entonces un boton "Olvidar copia de
-  Drive" para borrarlo a proposito.
-- **El token vive en `sessionStorage`.** Al cerrar la pestaña se olvida, que es
-  justo lo que cabe en una app sin backend.
+## La base de datos de Turso
+
+Existe ya el esquema completo en `src/lib/turso/`, escrito con Drizzle ORM y
+probado contra una base de verdad. **Todavia no esta conectado a la app**: no hay
+codigo que lea ni escriba en ella, asi que la sincronizacion entre dispositivos
+sigue siendo manual.
+
+Lo que hay montado:
+
+| Pieza                     | Para que sirve                                   |
+| ------------------------- | ------------------------------------------------ |
+| `src/lib/turso/schema.ts` | Las 6 tablas y sus indices                       |
+| `drizzle.config.ts`       | Generar y aplicar el SQL de migraciones          |
+| `src/lib/turso/cliente.ts`| Cliente perezoso y comprobacion de credenciales  |
+| `npm run test:db-turso`   | 24 pruebas del esquema y de la replica           |
+
+Las tablas son `pacientes`, `registros`, `visitas`, `borrados`, `ajustes` y
+`replica`. No hay tabla de usuarios: cada despliegue tiene su propia base, y no
+hay cuentas ni contrasenas que gestionar.
+
+Se prueba contra un fichero SQLite local (`file:`) en lugar de contra Turso,
+porque el protocolo es el mismo y asi las pruebas corren sin conexion y sin
+credenciales. Lo que no se comprueba de esa forma es el comportamiento del
+servicio en si: la latencia y los limites de uso solo se ven contra Turso.
+
+### Las decisiones que importan
+
+- **`registros` y `visitas` llevan `paciente_id`, y en `lib/tipos.ts` no.** En la
+  app, `pacienteActivo` es un ajuste del dispositivo y todas las mediciones
+  cuelgan de el. En una base compartida eso no sirve: con dos personas medidas
+  desde el mismo movil sus series quedarian mezcladas y sin forma de separarlas
+  despues. El dato original no sabe a quien pertenecia, asi que hay que
+  migrarlo asignandole su paciente actual.
+- **Toda fila lleva `updatedAt`, y `borrados` es una tabla aparte.** Es lo mismo
+  que hace ya la fusion: cuando dos dispositivos cambian lo mismo gana el mas
+  nuevo, y un borrado tiene que viajar como una marca para no resucitar. La
+  condicion esta en el `where` del `upsert`, no en el codigo de quien llama,
+  porque si el telefono se corta a mitad de subir y reintenta, la comparacion
+  tiene que hacerla SQLite.
+- **`ajustes` es una sola fila con los cambios por campo dentro.** Sin el mapa de
+  marcas, un cambio de umbral hecho a la vez que uno de plantillas se llevaria
+  por delante el otro.
+- **`replica` guarda hasta donde se ha subido y bajado.** Sin eso no hay forma
+  de distinguir "esto no lo he subido" de "esto ya estaba".
+
+### Ponerla en marcha
+
+```powershell
+# 1. Crear la base en https://turso.tech y un token de lectura y escritura.
+# 2. Copiar .env.example como .env y rellenar:
+#      VITE_TURSO_URL=libsql://tu-base.turso.io
+#      VITE_TURSO_TOKEN=el-token
+# 3. Aplicar el esquema. No hay que definir nada mas: el comando lee el .env.
+npm run db:migrate
+npm run db:comprobar
+```
+
+`drizzle-kit` respeta lo que ya venga en el entorno (`TURSO_URL` y
+`TURSO_TOKEN`) y, si no hay nada, lee el `.env`. Con eso la credencial esta
+escrita en un unico sitio; si se duplicara en los dos pares de nombres, un
+desajuste entre ellos solo apareceria al ejecutar las migraciones.
+
+**`db:comprobar` y `db:probar` no son lo mismo.** El primero solo lee y
+confirma que las tablas, los indices y las claves foraneas existen: es que
+`drizzle-kit migrate` no haya fallado, no que el esquema este bien. El segundo
+escribe y borra su propia fila, y es el que detecta un token de **solo
+lectura**, que es el error mas probable despues de crear la base: hasta que no
+se intenta subir algo no se ve. La limpieza va en un `finally`, asi que
+tambien se ejecuta si una comprobacion falla a la mitad.
+
+Sobre el prefijo `VITE_`: lo que lo lleva se incrusta en el paquete que descarga
+el navegador. Aqui no es un problema, porque cada despliegue tiene su propia
+base y sus credenciales no se comparten con nadie. Si se publicara una
+instancia unica y compartida, si seria un fallo grave, porque contendria datos
+de pacientes. Para ese caso habria que poner un proxy delante.
+
+### El token
+
+El token es de lectura y escritura, y da acceso a todo lo que hay en la base. Va
+en el `.env`, que esta en `.gitignore`, pero conviene recordar dos cosas:
+
+- **Si se filtra, hay que revocarlo** en el panel de Turso y generar otro. No
+  basta con borrarlo del archivo: el token sigue valiendo hasta que se revoque.
+- `db:studio` y cualquier consulta manual usan la misma credencial. El token de
+  solo lectura sirve para mirar, pero no para la replica.
 
 ## Instalar como aplicacion
 
@@ -188,9 +251,8 @@ cabeceras sin cache.
   terceros: los componentes son propios para mantener el bundle pequeno.
 - **Datos locales.** IndexedDB es el almacen principal (soporta cientos o miles
   de mediciones); localStorage actua de espejo y de respaldo si IndexedDB no
-  esta disponible. No hay backend. La copia entre dispositivos es opcional y la
-  hace la persona, con un backup manual o con Drive (ver "Sincronizar entre
-  dispositivos").
+  esta disponible. No hay backend. La copia entre dispositivos es opcional y hoy
+  se hace a mano, con un backup (ver "Sincronizar entre dispositivos").
 - **Una base por tipo de dato.** Cada contexto tiene su almacen y su store
   (`registros`, `ajustes`, `visitas`, `borrados`), todos en la misma base
   IndexedDB. Asi una lista vacia o corrupta en un tipo de dato no puede tirar
@@ -198,11 +260,11 @@ cabeceras sin cache.
 - **Fusionar, no restaurar.** Dos dispositivos se combinan con
   `lib/fusion.ts`: por identificador gana la version mas reciente
   (last-write-wins), un empate exacto gana el local, y los borrados viajan como
-  *tombstones* para que no reaparezcan. La copia de Drive es siempre la union de
-  los dos, no la foto de uno. `lib/fusion.ts` trabaja con datos y `lib/drive.ts`
-  con el fichero; los ajustes compartidos se fusionan campo a campo con su
-  propia marca de tiempo, y el resto (tema, recordatorio, paciente activo) se
-  queda en cada dispositivo.
+  *tombstones* para que no reaparezcan. Lo que se guarda al otro lado es siempre
+  la union de los dos, no la foto de uno. `lib/fusion.ts` trabaja con datos y
+  `lib/sincronizar.ts` con el paquete entero; los ajustes compartidos se fusionan
+  campo a campo con su propia marca de tiempo, y el resto (tema, recordatorio,
+  paciente activo) se queda en cada dispositivo.
 - **Fechas en hora local.** Se guardan como texto (`AAAA-MM-DD` y `HH:MM`) y se
   reconstruyen con `new Date(ano, mes-1, dia, ...)`. Usar `toISOString()`
   correria el dia cerca de medianoche, que es justo cuando se anota.
@@ -234,9 +296,11 @@ src/
   context/      Estado global (registros, visitas y ajustes) con useReducer
   hooks/        Enrutado por hash y hooks de fecha
   lib/          Logica pura: rangos, fechas, resumen, persistencia, exportacion,
-                fusion de datos, Google Drive y actualizacion del service worker
+                fusion de datos y actualizacion del service worker
+    turso/      Esquema y cliente de la base de datos de la replica (Drizzle)
   pages/        Inicio, Historial, Graficas, Visitas, Reportes, Ajustes
 public/         Manifest, service worker e iconos
+drizzle/        SQL de migraciones, generado y versionado
 tools/          Pruebas y scripts de mantenimiento (generacion de iconos)
 ```
 
