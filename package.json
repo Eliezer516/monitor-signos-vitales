@@ -14,14 +14,16 @@
     "preview": "vite preview",
     "test:fusion": "vite-node tools/test-fusion.ts",
     "test:db": "vite-node tools/test-db.ts",
-    "test:todo": "npm run test && npm run test:fusion && npm run test:db && npm run test:sincronizar && npm run test:db-turso && npm run test:sw",
+    "test:todo": "npm run test && npm run test:fusion && npm run test:db && npm run test:sincronizar && npm run test:db-turso && npm run test:replica && npm run test:sw",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "test:db-turso": "vite-node tools/test-turso.ts",
     "test:sincronizar": "vite-node tools/test-sincronizar.ts",
     "db:comprobar": "vite-node tools/db-comprobar.ts",
-    "db:probar": "vite-node tools/db-probar.ts"
+    "db:probar": "vite-node tools/db-probar.ts",
+    "test:replica": "vite-node tools/test-replica.ts",
+    "db:replica": "vite-node tools/db-replica.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",

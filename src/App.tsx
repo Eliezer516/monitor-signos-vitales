@@ -2,11 +2,16 @@
  * Raiz de la aplicacion.
  *
  * Orden de los proveedores, de fuera hacia dentro:
- *   Avisos  ->  Ajustes  ->  Registros  ->  Visitas  ->  Estructura  ->  Paginas
+ *   Avisos  ->  Ajustes  ->  Registros  ->  Visitas  ->  Replica  ->
+ *   Estructura  ->  Paginas
  *
  * `Avisos` envuelve al resto para poder notificar desde los contextos; los
  * proveedores de datos van antes de la estructura porque las paginas los
  * necesitan.
+ *
+ * `Replica` va el ultimo de los proveedores de datos, y por un motivo concreto:
+ * necesita leer los otros tres para saber que hay que subir. Si fuera al reves, no
+ * tendria nada que mandar.
  */
 
 import { useEffect } from 'react'
@@ -14,6 +19,7 @@ import { ProveedorAvisos } from './components/Avisos'
 import { ProveedorAjustes } from './context/ContextoAjustes'
 import { ProveedorRegistros } from './context/ContextoRegistros'
 import { ProveedorVisitas } from './context/ContextoVisitas'
+import { ProveedorReplica } from './context/ContextoReplica'
 import { Estructura } from './components/Estructura'
 import { registrarActualizacion } from './lib/actualizacion'
 import { useRuta } from './hooks/useRuta'
@@ -31,7 +37,9 @@ export function App() {
       <ProveedorAjustes>
         <ProveedorRegistros>
           <ProveedorVisitas>
-            <Aplicacion />
+            <ProveedorReplica>
+              <Aplicacion />
+            </ProveedorReplica>
           </ProveedorVisitas>
         </ProveedorRegistros>
       </ProveedorAjustes>

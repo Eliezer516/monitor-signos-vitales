@@ -12,6 +12,8 @@ import { useAjustes, plantillasSugeridas } from '../context/ContextoAjustes'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useVisitas } from '../context/ContextoVisitas'
 import { useAvisos } from '../components/Avisos'
+import { useReplica } from '../context/ContextoReplica'
+import { PanelReplica } from '../components/Replica'
 import { BotonBuscarActualizacion } from '../components/Actualizacion'
 
 import { compartirBackup, exportarBackup, leerBackup, type DatosBackup } from '../lib/exportar'
@@ -718,6 +720,7 @@ function SeccionDatos() {
   const { visitas, fusionar: fusionarVisitas, vaciar: vaciarVisitas } = useVisitas()
   const { pacientes, ajustes, setAjuste, fusionarPacientes, aplicarAjustesRemotos, marcas, ajustesCompartidos } = useAjustes()
   const { aviso } = useAvisos()
+  const { marcarCambio } = useReplica()
   const [confirmando, setConfirmando] = useState(false)
   const refArchivo = useRef<HTMLInputElement>(null)
   const [idb, setIdb] = useState<boolean | null>(null)
@@ -784,6 +787,12 @@ function SeccionDatos() {
           ? aplicarAjustesRemotos(ajustesImportados, marcasImportadas)
           : 0
 
+        // La subida se pide despues de las tres fusiones y no antes, porque hasta
+        // que no han terminado los cambios de estado no hay nada que enviar. Sin
+        // esto lo restaurado se quedaria solo en este telefono hasta que alguien
+        // pulsara el boton, que es justo lo que se restauro para no depender de.
+        marcarCambio()
+
         // Un unico aviso resume la operacion: si se avisa dos veces se puede
         // perder el primero, que es el que confirma que el archivo se leyo.
         // `entrados` y no el total del archivo: si el backup lo genero este mismo
@@ -831,6 +840,12 @@ function SeccionDatos() {
           <p className="text-xs text-texto-suave">pacientes</p>
         </div>
       </div>
+
+      {/* La copia en la nube va antes que el backup en fichero, porque es la que
+          se actualiza sola. El boton de "Descargar backup" sigue estando: el
+          fichero es lo que se lleva uno puesto cuando no hay red, y no depende de
+          que nadie haya configurado nada. */}
+      <PanelReplica />
 
       <Boton
         ancho

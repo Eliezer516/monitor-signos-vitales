@@ -6,7 +6,7 @@
  * pierde sin avisar. Los tipos de TypeScript de aqui son la fuente para
  * `leerBackup`, no al reves.
  *
- * Dos criterios que condicionan el diseño:
+ * Dos criterios que condicionan el diseno:
  *
  * - **Una persona, varios dispositivos.** No hay tabla de usuarios a proposito.
  *   Cada despliegue de este proyecto tiene su propia base, y quien despliega
@@ -21,6 +21,13 @@
 
 import { sql } from 'drizzle-orm'
 import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import type {
+  Limites,
+  MarcasCompartidas,
+  PlantillaNota,
+  PresionHabitual,
+  Umbrales,
+} from '../tipos'
 
 /**
  * Fecha y hora en texto ISO.
@@ -48,10 +55,8 @@ export const pacientes = sqliteTable(
      * se lee y escribe junto: partirlo solo permitiria guardar media
      * prescripcion, que es peor que no guardarla.
      */
-    presionHabitual: text('presion_habitual', { mode: 'json' }).$type<{
-      sis: number
-      dia: number
-    } | null>(),
+    presionHabitual: text('presion_habitual', { mode: 'json' })
+      .$type<PresionHabitual | null>(),
     createdAt: iso('created_at').notNull(),
     updatedAt: iso('updated_at').notNull(),
   },
@@ -163,16 +168,17 @@ export const borrados = sqliteTable(
  */
 export const ajustes = sqliteTable('ajustes', {
   id: integer('id').primaryKey(),
-  umbral: text('umbral', { mode: 'json' }).$type<Record<string, number>>().notNull(),
-  limites: text('limites', { mode: 'json' }).$type<Record<string, number>>().notNull(),
-  presionHabitual: text('presion_habitual', { mode: 'json' }).$type<{
-    sis: number
-    dia: number
-  } | null>(),
-  plantillas: text('plantillas', { mode: 'json' }).$type<
-    { id: string; texto: string; activa: boolean }[]
-  >().notNull(),
-  marcas: text('marcas', { mode: 'json' }).$type<Record<string, string>>().notNull(),
+  /**
+   * `Umbrales` y `Limites` con su tipo real y no como `Record<string, number>`.
+   * Con el tipo generico se perderia el aviso de compilacion al anadir o renombrar
+   * un umbral, y un JSON con la forma equivocada llegaria hasta `ajustes.umbral` sin
+   * que nada se quejara hasta que la pantalla lo pintara.
+   */
+  umbral: text('umbral', { mode: 'json' }).$type<Umbrales>().notNull(),
+  limites: text('limites', { mode: 'json' }).$type<Limites>().notNull(),
+  presionHabitual: text('presion_habitual', { mode: 'json' }).$type<PresionHabitual>(),
+  plantillas: text('plantillas', { mode: 'json' }).$type<PlantillaNota[]>().notNull(),
+  marcas: text('marcas', { mode: 'json' }).$type<MarcasCompartidas>().notNull(),
   updatedAt: iso('updated_at').notNull(),
 })
 

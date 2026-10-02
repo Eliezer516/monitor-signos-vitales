@@ -72,32 +72,46 @@ npm run preview    # sirve dist/ para comprobar el resultado
 
 Las suites sueltas tambien se pueden lanzar por separado: `test:fusion`
 (union de datos), `test:db` (persistencia de borrados), `test:sincronizar`
-(fusion entre dispositivos), `test:db-turso` (esquema y replica contra una base
-SQLite real) y `test:sw`.
+(fusion entre dispositivos), `test:db-turso` (esquema contra una base SQLite
+real), `test:replica` (el ciclo completo de replica) y `test:sw`.
 
 ## Sincronizar entre dispositivos
 
 Los datos se guardan siempre en el dispositivo. Para tenerlos en otro sitio hay
-dos caminos:
+dos caminos, y se pueden usar los dos a la vez.
 
-### 1. Backup manual (sin configurar nada)
+### 1. Copia en la nube (Turso), automatica
+
+Si hay `VITE_TURSO_URL` y `VITE_TURSO_TOKEN` configurados, aparece **Ajustes >
+Datos > Copia en la nube**. A partir de ahi:
+
+- Cada vez que se anade, cambia o borra algo, se sube despues de un momento de
+  espera. El temporalizador se reinicia con cada cambio, asi que veinte
+  mediciones seguidas son una sola subida.
+- Al abrir la app y al volver a ella con el telefono en la mano, se descarga lo
+  que haya cambiado en los demas dispositivos.
+- Hay un boton **Sincronizar ahora**, que va sin esperar.
+- Si algo va mal, el motivo se ensena en esa misma pantalla. Los datos del
+  telefono no se tocan: un fallo de red deja los datos donde estaban y se
+  reintenta la proxima vez que cambie algo.
+- Al restaurar un backup, la subida se pide al momento, para que lo restaurado no
+  se quede solo en ese dispositivo.
+
+**Lo que llega de fuera nunca se aplica encima de lo local.** La base se trata
+como un objetivo de fusion, no como una copia que se restaure encima. Si las dos
+cosas cambian lo mismo, gana la mas nueva (last-write-wins), el perdedor se
+conserva en el telefono y vuelve a subir en el siguiente ciclo, y un borrado
+viaja como un *tombstone* para que no resucite en el otro dispositivo.
+
+### 2. Backup manual (sin configurar nada)
 
 En **Ajustes > Datos** esta "Descargar backup (JSON)", "Restaurar" y
 "Compartir backup". El archivo es un JSON que se puede mandar por el medio que
 sea: correo, WhatsApp, o el servicio de archivos que se use. Funciona con la app recien instalada y sin conexion
 a la hora de restaurar. Es la opcion que no depende de ninguna configuracion
-externa, y la unica que funciona hoy.
+externa, y la que sigue funcionando si la base de datos no esta disponible.
 
-### 2. Base de datos Turso (en preparacion)
-
-El esquema ya existe y esta probado, pero **la replica todavia no esta conectada
-a la app**: no hay codigo que lea ni escriba en la base. Lo que hay montado son
-las 6 tablas, las migraciones y el cliente, que es lo que falta para poder
-conectar el ciclo de fusion.
-
-Ver la seccion siguiente para el detalle del esquema y como ponerlo en marcha.
-
-### Que se replica cuando exista
+### Que se replica
 
 | Dato                                      | Se replica   |
 | ----------------------------------------- | ------------ |
@@ -108,39 +122,36 @@ Ver la seccion siguiente para el detalle del esquema y como ponerlo en marcha.
 | Borrados                                  | Si, de forma propagada |
 | Tema, recordatorio, paciente activo y fecha del ultimo backup | No, son de cada dispositivo |
 
-Cuando dos dispositivos han cambiado lo mismo, gana el mas nuevo
-(last-write-wins). Si el contenido es identico, gana el local. Cuando un
-dispositivo borra algo, ese borrado viaja como un *tombstone* para que no
-resucite en el otro, y se limpia a los 90 dias.
-
 Estas reglas viven en `src/lib/sincronizar.ts` y son puro: no saben de donde
 vienen los datos ni como se guardan. Por eso las comparten el backup manual y la
-replica, y por eso no habria que volver a escribirlas al conectar Turso.
+replica, y por eso las dos dan el mismo resultado.
 
 ## La base de datos de Turso
 
-Existe ya el esquema completo en `src/lib/turso/`, escrito con Drizzle ORM y
-probado contra una base de verdad. **Todavia no esta conectado a la app**: no hay
-codigo que lea ni escriba en ella, asi que la sincronizacion entre dispositivos
-sigue siendo manual.
+El esquema, el cliente y el ciclo de replica estan en `src/lib/turso/`, escritos
+con Drizzle ORM y probados contra una base de verdad.
 
-Lo que hay montado:
-
-| Pieza                     | Para que sirve                                   |
-| ------------------------- | ------------------------------------------------ |
-| `src/lib/turso/schema.ts` | Las 6 tablas y sus indices                       |
-| `drizzle.config.ts`       | Generar y aplicar el SQL de migraciones          |
-| `src/lib/turso/cliente.ts`| Cliente perezoso y comprobacion de credenciales  |
-| `npm run test:db-turso`   | 24 pruebas del esquema y de la replica           |
+| Pieza                        | Para que sirve                                     |
+| ---------------------------- | -------------------------------------------------- |
+| `src/lib/turso/schema.ts`    | Las 6 tablas y sus indices                         |
+| `drizzle.config.ts`          | Generar y aplicar el SQL de migraciones            |
+| `src/lib/turso/cliente.ts`   | Cliente perezoso y comprobacion de credenciales    |
+| `src/lib/turso/mapeo.ts`     | Conversiones entre filas y tipos de la app         |
+| `src/lib/turso/replica.ts`   | El ciclo: leer, fusionar y escribir la union        |
+| `src/context/ContextoReplica.tsx` | Cuando sincronizar, y como parar el bucle     |
+| `npm run test:db-turso`      | Pruebas del esquema                                 |
+| `npm run test:replica`       | Pruebas del ciclo, contra un SQLite local          |
+| `npm run db:replica`         | El ciclo contra la base real. **Borra lo que escribe** |
 
 Las tablas son `pacientes`, `registros`, `visitas`, `borrados`, `ajustes` y
 `replica`. No hay tabla de usuarios: cada despliegue tiene su propia base, y no
 hay cuentas ni contrasenas que gestionar.
 
-Se prueba contra un fichero SQLite local (`file:`) en lugar de contra Turso,
-porque el protocolo es el mismo y asi las pruebas corren sin conexion y sin
-credenciales. Lo que no se comprueba de esa forma es el comportamiento del
-servicio en si: la latencia y los limites de uso solo se ven contra Turso.
+Las pruebas de `test:replica` corren contra un fichero SQLite local (`file:`)
+porque el protocolo es el mismo, y asi corren sin conexion y sin credenciales.
+Lo que no se comprueba de esa forma es el comportamiento del servicio en si: la
+latencia, los limites de uso y una peticion cortada a mitad solo se ven contra
+Turso, y para eso esta `db:replica`.
 
 ### Las decisiones que importan
 
@@ -251,8 +262,9 @@ cabeceras sin cache.
   terceros: los componentes son propios para mantener el bundle pequeno.
 - **Datos locales.** IndexedDB es el almacen principal (soporta cientos o miles
   de mediciones); localStorage actua de espejo y de respaldo si IndexedDB no
-  esta disponible. No hay backend. La copia entre dispositivos es opcional y hoy
-  se hace a mano, con un backup (ver "Sincronizar entre dispositivos").
+  esta disponible. No hay backend propio: la copia entre dispositivos va contra
+  una base Turso que se configura por despliegue, y si no se configura, sigue
+  funcionando con un backup manual (ver "Sincronizar entre dispositivos").
 - **Una base por tipo de dato.** Cada contexto tiene su almacen y su store
   (`registros`, `ajustes`, `visitas`, `borrados`), todos en la misma base
   IndexedDB. Asi una lista vacia o corrupta en un tipo de dato no puede tirar
@@ -293,11 +305,11 @@ cabeceras sin cache.
 ```
 src/
   components/   Componentes de interfaz y graficas
-  context/      Estado global (registros, visitas y ajustes) con useReducer
+  context/      Estado global (registros, visitas, ajustes y replica) con useReducer
   hooks/        Enrutado por hash y hooks de fecha
   lib/          Logica pura: rangos, fechas, resumen, persistencia, exportacion,
                 fusion de datos y actualizacion del service worker
-    turso/      Esquema y cliente de la base de datos de la replica (Drizzle)
+    turso/      Esquema, mapeo y ciclo de replica contra la base de datos (Drizzle)
   pages/        Inicio, Historial, Graficas, Visitas, Reportes, Ajustes
 public/         Manifest, service worker e iconos
 drizzle/        SQL de migraciones, generado y versionado
