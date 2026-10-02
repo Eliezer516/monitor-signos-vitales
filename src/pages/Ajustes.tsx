@@ -1,6 +1,6 @@
 /**
- * Ajustes: paciente, umbrales clinicos, plantillas, recordatorios, datos y
- * apariencia.
+ * Ajustes: paciente, umbrales clinicos, plantillas, recordatorios, datos,
+ * apariencia y estado de la propia app.
  *
  * Se mantiene en una sola pantalla con secciones plegables: un cuidador mayor
  * no debe tener que navegar por submenus, pero la pantalla tampoco debe ser
@@ -12,6 +12,7 @@ import { useAjustes, plantillasSugeridas } from '../context/ContextoAjustes'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useVisitas } from '../context/ContextoVisitas'
 import { useAvisos } from '../components/Avisos'
+import { BotonBuscarActualizacion } from '../components/Actualizacion'
 import { exportarBackup, leerBackup } from '../lib/exportar'
 import { indexedDBDisponible } from '../lib/db'
 import { crearRegistrosDemo } from '../lib/demo'
@@ -45,6 +46,7 @@ import {
   cx,
 } from '../components/UI'
 import {
+  IconoActualizar,
   IconoAjustes,
   IconoCheck,
   IconoDescargar,
@@ -54,7 +56,7 @@ import {
   IconoSubir,
 } from '../components/Iconos'
 
-type Seccion = 'paciente' | 'umbrales' | 'notas' | 'recordatorios' | 'datos' | 'apariencia'
+type Seccion = 'paciente' | 'umbrales' | 'notas' | 'recordatorios' | 'datos' | 'apariencia' | 'app'
 
 const SECCIONES: { id: Seccion; etiqueta: string; icono: React.ReactNode }[] = [
   { id: 'paciente', etiqueta: 'Paciente', icono: <IconoAjustes width={18} height={18} /> },
@@ -67,6 +69,7 @@ const SECCIONES: { id: Seccion; etiqueta: string; icono: React.ReactNode }[] = [
   },
   { id: 'datos', etiqueta: 'Datos', icono: <IconoDescargar width={18} height={18} /> },
   { id: 'apariencia', etiqueta: 'Apariencia', icono: <IconoLuna width={18} height={18} /> },
+  { id: 'app', etiqueta: 'Aplicación', icono: <IconoActualizar width={18} height={18} /> },
 ]
 
 export function PaginaAjustes() {
@@ -93,6 +96,7 @@ export function PaginaAjustes() {
               {s.id === 'recordatorios' && <SeccionRecordatorios />}
               {s.id === 'datos' && <SeccionDatos />}
               {s.id === 'apariencia' && <SeccionApariencia />}
+              {s.id === 'app' && <SeccionApp />}
             </div>
           )}
         </Tarjeta>
@@ -917,6 +921,29 @@ function SeccionApariencia() {
           <IconoSol width={16} height={16} />
         )}
         Tema activo: {temaEfectivo}
+      </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Aplicacion
+// ---------------------------------------------------------------------------
+
+/**
+ * Estado de la copia de la app y comprobacion manual de actualizaciones.
+ *
+ * Existe sobre todo para los casos en los que el aviso se aparta: si la app esta
+ * funcionando sin conexion y se ha descartado la actualizacion, aqui siempre se
+ * ve si hay algo pendiente y se puede instalar sin buscar el aviso original.
+ */
+function SeccionApp() {
+  return (
+    <div className="space-y-3">
+      <BotonBuscarActualizacion />
+      <p className="text-xs text-texto-suave">
+        La app guarda una copia completa en el dispositivo, así que funciona sin conexión. Cuando publicas una
+        versión nueva, se detecta al volver a abrir la app o al recuperar la conexión.
       </p>
     </div>
   )

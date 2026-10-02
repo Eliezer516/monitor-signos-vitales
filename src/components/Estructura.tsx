@@ -12,6 +12,7 @@
 import type { ReactNode } from 'react'
 import { RUTAS, type Ruta } from '../hooks/useRuta'
 import { cx } from './UI'
+import { AvisoActualizacion } from './Actualizacion'
 import { IconoAjustes, IconoCasa, IconoGrafica, IconoHistorial, IconoMas, IconoMedico, IconoReporte } from './Iconos'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useRegistros } from '../context/ContextoRegistros'
@@ -74,7 +75,10 @@ export function Estructura({
       <div className="flex min-w-0 flex-1 flex-col">
         <Encabezado ruta={ruta} onNavegar={onNavegar} />
 
-        <main className="flex-1 px-3 pt-3 pb-28 sm:px-4 lg:px-0 lg:pb-8">{children}</main>
+        <main className="flex-1 px-3 pt-3 pb-28 sm:px-4 lg:px-0 lg:pb-8">
+          <AvisoActualizacion />
+          {children}
+        </main>
       </div>
 
       {/* Barra inferior movil. */}

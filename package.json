@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "typecheck": "tsc -b",
     "test": "vite-node tools/test-logica.ts",
+    "test:sw": "vite-node tools/test-sw.ts",
     "iconos": "node tools/generar-iconos.mjs",
     "preview": "vite preview"
   },

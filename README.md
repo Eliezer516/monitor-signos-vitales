@@ -58,6 +58,7 @@ npm run preview    # sirve dist/ para comprobar el resultado
 | `npm run typecheck`| Comprueba los tipos sin generar nada             |
 | `npm run lint`     | Analisis estatico (oxlint)                       |
 | `npm test`         | Pruebas de la logica pura (rangos, fechas, visitas, backup)|
+| `npm run test:sw`  | Pruebas del service worker (necesita `npm run build` antes)|
 | `npm run iconos`   | Regenera los iconos PNG de la PWA                |
 
 ## Instalar como aplicacion
@@ -65,6 +66,42 @@ npm run preview    # sirve dist/ para comprobar el resultado
 Al desplegar, se puede instalar desde el navegador (Android: menu > "Instalar
 aplicacion"; iOS: Compartir > "Anadir a pantalla de inicio"). Funciona
 necesariamente sobre **HTTPS**, salvo en `localhost`.
+
+## Actualizaciones de la version
+
+Al publicar una version nueva, la app la detecta y ofrece un aviso con
+"Actualizar". Recargar no pierde nada: los datos viven en IndexedDB y
+localStorage. Tambien se comprueba al abrir la app, al volver a ella, al
+recuperar la conexion y cada media hora, porque las rutas van por hash y cambiar
+de pantalla no genera peticiones que delaten una version nueva. En
+**Ajustes > Aplicacion** hay una comprobacion manual y el boton de instalacion.
+
+La version nueva **no se activa sola**: se queda esperando. Mientras tanto sigue
+mandando la version anterior con su propia cache, de modo que la app en pantalla
+y los archivos que necesita siempre coinciden, tambien sin conexion. Al
+aceptar, se recarga y a partir de ahi la copia sin conexion es la ultima
+publicada.
+
+Tres piezas hacen que esto funcione, y conviene no romperlas:
+
+- **El service worker se versiona en el build.** `versionServiceWorker` en
+  `vite.config.ts` sustituye `BUILD_ID` en `dist/sw.js` por un hash de
+  `index.html` y de los assets del build, y anade esos assets a `PRECARGA`. Sin
+  esto el navegador recibe un `sw.js` identico en cada compilacion, no reinstala
+  nada y la cache se congela con la primera visita.
+- **Cada URL vive en una sola cache** (`assets-<id>`), y todas las lecturas se
+  hacen contra una cache nombrada. Guardar el mismo recurso en dos caches hace
+  que `caches.match` sin `cacheName` devuelva la copia mas antigua: es
+  exactamente el motivo por el que sin conexion salia la version vieja.
+- **Los assets van precargados**, no cacheados "al vuelo". De otro modo, la
+  primera visita sin conexion tendria el `index.html` pero no el bundle que
+  ejecutar.
+
+**Al desplegar, `sw.js` no debe servirse con un `Cache-Control` de larga
+duracion.** El registro usa `updateViaCache: 'none'`, pero si el servidor
+entrega el mismo archivo cacheado durante semanas, ninguna app puede enterarse
+del cambio. En Netlify, Vercel o GitHub Pages conviene anadir `/sw.js` a las
+cabeceras sin cache.
 
 ## Decisiones tecnicas
 
@@ -102,10 +139,11 @@ src/
   components/   Componentes de interfaz y graficas
   context/      Estado global (registros, visitas y ajustes) con useReducer
   hooks/        Enrutado por hash y hooks de fecha
-  lib/          Logica pura: rangos, fechas, resumen, persistencia, exportacion
+  lib/          Logica pura: rangos, fechas, resumen, persistencia, exportacion,
+                y actualizacion del service worker
   pages/        Inicio, Historial, Graficas, Visitas, Reportes, Ajustes
-public/         Manifest, service worker e iconos
-tools/          Scripts de mantenimiento (generacion de iconos)
+public/        Manifest, service worker e iconos
+tools/          Pruebas y scripts de mantenimiento (generacion de iconos)
 ```
 
 ## Datos de ejemplo

@@ -216,3 +216,11 @@ export const IconoCheck = (p: Props) => (
     <path d="m4.5 12.5 5 5 10-11" />
   </svg>
 )
+
+export const IconoActualizar = (p: Props) => (
+  <svg {...base(p)}>
+    <path d="M20 11a8 8 0 0 0-13.7-5.3L3 9" />
+    <path d="M4 13a8 8 0 0 0 13.7 5.3L21 15" />
+    <path d="M3 4v5h5M21 20v-5h-5" />
+  </svg>
+)
