@@ -20,7 +20,7 @@
  * Ajustes refleja, sin prometer nada que no se pueda cumplir.
  */
 
-const GIS_URL = 'https://accounts.google.com/gsi/client'
+const GIS_URL = "https://accounts.google.com/gsi/client";
 
 /**
  * Scope de la carpeta oculta de la app.
@@ -35,16 +35,16 @@ const GIS_URL = 'https://accounts.google.com/gsi/client'
  * por lo que la copia local sigue siendo la fuente de verdad y nunca se
  * sobrescribe con lo que hay alla.
  */
-const SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
+const SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 
 /** Margen de seguridad antes de la caducidad real del token. */
-const MARGEN_S = 60
+const MARGEN_S = 60;
 
 /** Token de acceso en curso. Vive en `sessionStorage`, no en `localStorage`. */
 interface TokenGuardado {
-  token: string
+  token: string;
   /** Epoch en segundos. */
-  expira: number
+  expira: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,70 +53,76 @@ interface TokenGuardado {
 
 /** Subconjunto de la API de GIS que usa la app, para no depender de sus tipos. */
 interface TokenClient {
-  requestAccessToken: (opts?: { prompt?: string; hint?: string; email?: string }) => void
+  requestAccessToken: (opts?: {
+    prompt?: string;
+    hint?: string;
+    email?: string;
+  }) => void;
 }
 interface Gis {
   accounts: {
     oauth2: {
       initTokenClient: (cfg: {
-        client_id: string
-        scope: string
-        callback: (r: RespuestaToken) => void
-        error_callback?: (e: { type?: string; message?: string }) => void
-      }) => TokenClient
-      revoke: (token: string, done?: () => void) => void
-    }
-  }
+        client_id: string;
+        scope: string;
+        callback: (r: RespuestaToken) => void;
+        error_callback?: (e: { type?: string; message?: string }) => void;
+      }) => TokenClient;
+      revoke: (token: string, done?: () => void) => void;
+    };
+  };
 }
 
 interface RespuestaToken {
-  access_token?: string
-  expires_in?: number
-  error?: string
-  error_description?: string
+  access_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
 }
 
 declare global {
   interface Window {
-    google?: Gis
+    google?: Gis;
   }
 }
 
-let cargando: Promise<Gis> | null = null
+let cargando: Promise<Gis> | null = null;
 
 /** El client ID, o cadena vacia si la app se desplego sin configurar Drive. */
 export function clientId(): string {
-  return import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
+  return import.meta.env.GOOGLE_CLIENT_ID ?? "";
 }
 
 /** Si falta el client ID, la parte de Drive se oculta en vez de romperse. */
 export function driveConfigurado(): boolean {
-  return clientId() !== ''
+  return clientId() !== "";
 }
 
-const CLAVE_TOKEN = 'msv:token-google'
+const CLAVE_TOKEN = "msv:token-google";
 
 /** Carga el script de GIS una sola vez y reutiliza la promesa. */
 function cargarGis(): Promise<Gis> {
-  if (typeof window === 'undefined') {
-    return Promise.reject(new Error('La sincronizacion solo funciona en el navegador'))
+  if (typeof window === "undefined") {
+    return Promise.reject(
+      new Error("La sincronizacion solo funciona en el navegador"),
+    );
   }
-  if (window.google?.accounts) return Promise.resolve(window.google)
-  if (cargando) return cargando
+  if (window.google?.accounts) return Promise.resolve(window.google);
+  if (cargando) return cargando;
 
   cargando = new Promise((resolve, reject) => {
-    const s = document.createElement('script')
-    s.src = GIS_URL
-    s.async = true
-    s.defer = true
+    const s = document.createElement("script");
+    s.src = GIS_URL;
+    s.async = true;
+    s.defer = true;
     s.onload = () =>
       window.google?.accounts
         ? resolve(window.google)
-        : reject(new Error('No se pudo cargar la libreria de Google'))
-    s.onerror = () => reject(new Error('Sin conexion para cargar Google'))
-    document.head.appendChild(s)
-  })
-  return cargando
+        : reject(new Error("No se pudo cargar la libreria de Google"));
+    s.onerror = () => reject(new Error("Sin conexion para cargar Google"));
+    document.head.appendChild(s);
+  });
+  return cargando;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,19 +131,19 @@ function cargarGis(): Promise<Gis> {
 
 function leerToken(): TokenGuardado | null {
   try {
-    const bruto = sessionStorage.getItem(CLAVE_TOKEN)
-    return bruto ? (JSON.parse(bruto) as TokenGuardado) : null
+    const bruto = sessionStorage.getItem(CLAVE_TOKEN);
+    return bruto ? (JSON.parse(bruto) as TokenGuardado) : null;
   } catch {
-    return null
+    return null;
   }
 }
 
 /** Token guardado y aun vigente. `sessionStorage` muere con la pestana. */
 export function tokenVigente(): TokenGuardado | null {
-  const t = leerToken()
-  if (!t?.token) return null
-  if (Date.now() / 1000 >= t.expira - MARGEN_S) return null
-  return t
+  const t = leerToken();
+  if (!t?.token) return null;
+  if (Date.now() / 1000 >= t.expira - MARGEN_S) return null;
+  return t;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,8 +155,8 @@ export function tokenVigente(): TokenGuardado | null {
 /** Error de autorizacion con un mensaje pensado para/leer por la persona. */
 export class ErrorGoogle extends Error {
   constructor(mensaje: string) {
-    super(mensaje)
-    this.name = 'ErrorGoogle'
+    super(mensaje);
+    this.name = "ErrorGoogle";
   }
 }
 
@@ -164,13 +170,17 @@ export class ErrorGoogle extends Error {
  */
 export function pedirToken(): Promise<TokenGuardado> {
   if (!driveConfigurado()) {
-    return Promise.reject(new ErrorGoogle('La sincronizacion no esta configurada en este despliegue'))
+    return Promise.reject(
+      new ErrorGoogle(
+        "La sincronizacion no esta configurada en este despliegue",
+      ),
+    );
   }
 
   return cargarGis().then(
     (gis) =>
       new Promise<TokenGuardado>((resolve, reject) => {
-        let cliente: TokenClient
+        let cliente: TokenClient;
         try {
           cliente = gis.accounts.oauth2.initTokenClient({
             client_id: clientId(),
@@ -179,23 +189,23 @@ export function pedirToken(): Promise<TokenGuardado> {
               if (r.error || !r.access_token) {
                 reject(
                   new ErrorGoogle(
-                    r.error === 'access_denied'
-                      ? 'Has cancelado el acceso a Google'
-                      : 'Google no ha concedido acceso',
+                    r.error === "access_denied"
+                      ? "Has cancelado el acceso a Google"
+                      : "Google no ha concedido acceso",
                   ),
-                )
-                return
+                );
+                return;
               }
               const guardado: TokenGuardado = {
                 token: r.access_token,
                 expira: Math.floor(Date.now() / 1000) + (r.expires_in ?? 3600),
-              }
+              };
               try {
-                sessionStorage.setItem(CLAVE_TOKEN, JSON.stringify(guardado))
+                sessionStorage.setItem(CLAVE_TOKEN, JSON.stringify(guardado));
               } catch {
                 // Sin sessionStorage el token sirve para esta accion y ya.
               }
-              resolve(guardado)
+              resolve(guardado);
             },
             // Se invoca cuando el popup se cierra sin completar. Es el caso
             // tipico en PWA instalada, y sin este manejador la promesa se
@@ -203,23 +213,25 @@ export function pedirToken(): Promise<TokenGuardado> {
             error_callback: (e) =>
               reject(
                 new ErrorGoogle(
-                  e?.type === 'popup_closed'
-                    ? 'La ventana de Google se cerro antes de terminar. Prueba otra vez.'
-                    : 'No se pudo abrir la ventana de Google',
+                  e?.type === "popup_closed"
+                    ? "La ventana de Google se cerro antes de terminar. Prueba otra vez."
+                    : "No se pudo abrir la ventana de Google",
                 ),
               ),
-          })
+          });
         } catch {
-          reject(new ErrorGoogle('La libreria de Google no se cargo bien'))
-          return
+          reject(new ErrorGoogle("La libreria de Google no se cargo bien"));
+          return;
         }
         try {
-          cliente.requestAccessToken()
+          cliente.requestAccessToken();
         } catch {
-          reject(new ErrorGoogle('El navegador ha bloqueado la ventana de Google'))
+          reject(
+            new ErrorGoogle("El navegador ha bloqueado la ventana de Google"),
+          );
         }
       }),
-  )
+  );
 }
 
 /**
@@ -230,18 +242,18 @@ export function pedirToken(): Promise<TokenGuardado> {
  * a la carpeta hasta que caduque, y el usuario creeria que lo ha cerrado.
  */
 export function desconectar(): void {
-  const t = leerToken()
+  const t = leerToken();
   try {
-    sessionStorage.removeItem(CLAVE_TOKEN)
+    sessionStorage.removeItem(CLAVE_TOKEN);
   } catch {
     // Nada que limpiar.
   }
-  if (!t?.token) return
+  if (!t?.token) return;
   void cargarGis()
     .then((gis) => {
-      gis.accounts.oauth2.revoke(t.token, () => {})
+      gis.accounts.oauth2.revoke(t.token, () => {});
     })
     .catch(() => {
       // Si no se puede revocar en linea, el token caduca en una hora igualmente.
-    })
+    });
 }
