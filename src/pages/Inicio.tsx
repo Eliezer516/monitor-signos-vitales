@@ -14,13 +14,15 @@
 import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useAjustes } from '../context/ContextoAjustes'
+import { useAvisos } from '../components/Avisos'
 import { alertasDelDia, resumenDia, nivelDia } from '../lib/resumen'
 import { aDate, etiquetaRelativa, fechaCorta, haceCuanto, hora12 } from '../lib/fechas'
 import { evaluarBpm, evaluarDia, evaluarO2, evaluarSis } from '../lib/rangos'
-import type { Nivel } from '../lib/tipos'
+import { copiarTexto, textoMediciones } from '../lib/texto'
+import type { Nivel, Registro } from '../lib/tipos'
 import { ListaMediciones, PanelAlertas, TarjetaMetrica, n } from '../components/Resumen'
 import { BotonFlotante, Insignia, Tarjeta, cx } from '../components/UI'
-import { IconoGota, IconoOximetro, IconoPulso, IconoCorazon, IconoMas } from '../components/Iconos'
+import { IconoGota, IconoOximetro, IconoPulso, IconoCorazon, IconoMas, IconoCopiar } from '../components/Iconos'
 import { Calendario } from '../components/Calendario'
 import { FormularioRapido } from '../components/FormularioRapido'
 import { useHoy } from '../hooks/useHoy'
@@ -29,6 +31,7 @@ import { useAhora } from '../hooks/useAhora'
 export function PaginaInicio({ onIrRegistrar }: { onIrRegistrar: () => void }) {
   const { registros, eliminar, cargando } = useRegistros()
   const { ajustes, paciente, presionHabitual } = useAjustes()
+  const { aviso } = useAvisos()
   const hoy = useHoy()
   const ahora = useAhora()
 
@@ -60,6 +63,24 @@ const ultimas24 = useMemo(() => {
   }, [registros, ahora])
 
   const ultimaMedicion = ultimas24[0]
+
+  /**
+   * Copia mediciones al portapapeles.
+   *
+   * Es el atajo para el caso de uso más habitual: pasar "lo de hoy" a un
+   * familiar o a un médico sin montar un archivo. Se avisa siempre del número
+   * de mediciones copiadas, porque un portapapeles que no cambia da la sensación
+   * de que el botón está roto.
+   */
+  const copiar = async (registros: Registro[], que: string) => {
+    if (!(await copiarTexto(textoMediciones(registros)))) {
+      aviso('No se pudo copiar. Copia el texto a mano.', 'error')
+      return
+    }
+    aviso(
+      `${registros.length} ${registros.length === 1 ? 'medicion copiada' : 'mediciones copiadas'} de ${que}`,
+    )
+  }
 
   if (cargando) return <Cargando />
 
@@ -154,15 +175,30 @@ evaluarSis(resumen.promedioPresionSis, ajustes.umbral, presionHabitual),
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-base font-semibold text-texto">Ultimas 24 horas</h2>
           {ultimas24.length > 0 && (
-            <span className="text-xs text-texto-suave">{ultimas24.length} mediciones</span>
+            <span className="flex items-center gap-2 text-xs text-texto-suave">
+              <span>
+                {ultimas24.length} {ultimas24.length === 1 ? 'medicion' : 'mediciones'}
+              </span>
+              {/* Copia la ventana entera de una vez: es lo que se manda
+                  en un mensaje, no medición a medición. */}
+              <button
+                onClick={() => void copiar(ultimas24, 'las ultimas 24 horas')}
+                aria-label={`Copiar las ${ultimas24.length} mediciones de las ultimas 24 horas`}
+                className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 font-medium text-marca transition hover:bg-marca-suave"
+              >
+                <IconoCopiar width={14} height={14} />
+                Copiar
+              </button>
+            </span>
           )}
         </div>
-<ListaMediciones
+        <ListaMediciones
           registros={ultimas24}
           umbral={ajustes.umbral}
           habitual={presionHabitual}
           compacta
-onEliminar={(r) => {
+          onCopiar={(r) => void copiar([r], hora12(r.hora))}
+          onEliminar={(r) => {
             if (
               confirm(
                 `Eliminar la medicion de las ${hora12(r.hora)} del ${fechaCorta(r.fecha)}?`,
