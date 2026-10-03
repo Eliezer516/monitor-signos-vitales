@@ -127,10 +127,25 @@ class CacheStorageSimulado {
 // ---------------------------------------------------------------------------
 
 /** Cuando vale `false`, toda peticion falla: es lo que ve el usuario sin conexion. */
-const RED = { activa: true }
+const RED = { activa: true, colgada: false }
 
-async function red(url: string): Promise<Respuesta> {
+async function red(url: string, signal?: AbortSignal): Promise<Respuesta> {
   if (!RED.activa) throw new Error('sin conexion')
+
+  // Ni responde ni falla. Es lo que hace un movil con cobertura pero sin salida a
+  // internet, o un portal cautivo: la peticion simplemente se queda ahi.
+  //
+  // Es el caso que hacia pasar la prueba de "SIN conexion" sin encontrar el fallo
+  // real: ahi la red simulada falla al instante, como hace un navegador en modo
+  // avion, y un `fetch` sin plazo no se distingue. Contra la red real, que si
+  // aguanta, la navegacion se quedaba esperando hasta que el sistema operativo
+  // se rendia y la pantalla no aparecia en medio minuto.
+  if (RED.colgada) {
+    return new Promise<Respuesta>((_resolver, rechazar) => {
+      signal?.addEventListener('abort', () => rechazar(new Error('peticion abortada')))
+    })
+  }
+
   const relativa = url === `${ORIGEN}/` ? '/index.html' : url.slice(ORIGEN.length)
   const ruta = join(RAIZ, 'dist', relativa)
   if (!existsSync(ruta)) return respuesta('no encontrado', 404)
@@ -198,7 +213,7 @@ class Entorno {
       `
       const self = self_;
       const caches = caches_;
-      const fetch = (r) => red(String(r.url));
+      const fetch = (r, init) => red(String(r.url), init?.signal);
       ${codigo}
       `,
     )(this.self, this.caches, red, Peticion)
@@ -346,7 +361,6 @@ console.log('\nNavegacion SIN conexion')
   const e = new Entorno()
   await e.instalar('install')
   await e.instalar('activate')
-  const cache = (await e.caches.keys())[0]
 
   await e.pedir({ url: `${ORIGEN}/`, mode: 'navigate' })
 
@@ -360,6 +374,37 @@ console.log('\nNavegacion SIN conexion')
 
   const global = await e.caches.match(`${ORIGEN}/index.html`)
   ok(global !== undefined, 'la entrada se encuentra tambien con caches.match global')
+}
+
+console.log('\nNavegacion con la red COLGADA')
+
+{
+  const e = new Entorno()
+  await e.instalar('install')
+  await e.instalar('activate')
+
+  // Con conexion, para quedarse con una copia guardada de esta misma version.
+  await e.pedir({ url: `${ORIGEN}/`, mode: 'navigate' })
+
+  RED.colgada = true
+  const t0 = Date.now()
+  const r = await e.pedir({ url: `${ORIGEN}/`, mode: 'navigate' })
+  const pasado = Date.now() - t0
+  RED.colgada = false
+
+  ok(r !== null && r.ok, 'una red que no responde NO deja la app sin abrir')
+  igual(r!.cuerpo, htmlEnDisco, 'sale la copia guardada, no una pantalla de error')
+  ok(r!.cuerpo.includes('<div id="root">'), 'la copia guardada trae el contenedor de la app')
+
+  // El fallo era justo que no se llamaba: sin plazo, esta promesa no resolvia nunca
+  // y la prueba se quedaba colgada en lugar de fallar. Ahora tiene que responder.
+  const plazo = Number(/const ESPERA_RED_MS = ([\d.e+]+)/.exec(codigo)?.[1] ?? '3000')
+  ok(plazo > 0 && plazo <= 10000, 'el plazo de red es corto', `${plazo} ms`)
+  ok(
+    pasado < plazo + 2000,
+    'responde pasado el plazo, sin colgarse hasta que el sistema se rinde',
+    `${pasado} ms`,
+  )
 }
 
 console.log('\nCoherencia entre versiones')

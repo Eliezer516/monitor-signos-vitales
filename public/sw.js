@@ -51,6 +51,38 @@ const PRECARGA = [
 
 const CACHE_ASSETS = `assets-${BUILD_ID}`
 
+/**
+ * Cuanto se espera a la red antes de tirar con la copia guardada.
+ *
+ * Sin esto, abrir la app sin conexion no falla: se queda esperando a que el sistema
+ * operativo agote su propio tiempo de espera, que en un movil puede ser de treinta
+ * segundos o mas. Durante todo ese rato no hay nada que mostrar, que es justo lo que
+ * se ha reportado: sin red, la app no abre. Cortando a los pocos segundos el error es
+ * el mismo, pero la copia guardada ya esta en pantalla.
+ *
+ * Tres segundos dan de sobra para una respuesta real de un movil con cobertura
+ * normal, asi que no se cambia el comportamiento con conexion: solo se deja de
+ * esperar indefinidamente a una que no va a llegar.
+ */
+const ESPERA_RED_MS = 3000
+
+/**
+ * `fetch` con reloj.
+ *
+ * Abortar de verdad la peticion y no solo dejar de esperarla importa porque una
+ * peticion colgada sigue ocupando un hilo del worker: si no se corta, la navegacion
+ * sin conexion seguiria sin abrir aunque el usuario ya haya recargado.
+ */
+async function pedirConEspera(peticion, ms = ESPERA_RED_MS) {
+  const controlador = new AbortController()
+  const reloj = setTimeout(() => controlador.abort(), ms)
+  try {
+    return await fetch(peticion, { signal: controlador.signal })
+  } finally {
+    clearTimeout(reloj)
+  }
+}
+
 self.addEventListener('install', (evento) => {
   evento.waitUntil(
     caches
@@ -116,9 +148,17 @@ self.addEventListener('fetch', (evento) => {
         const enCache = await cache.match(peticion)
         if (enCache) return enCache
 
-        const respuesta = await fetch(peticion)
-        if (respuesta.ok) await cache.put(peticion, respuesta.clone())
-        return respuesta
+        try {
+          const respuesta = await pedirConEspera(peticion)
+          if (respuesta.ok) await cache.put(peticion, respuesta.clone())
+          return respuesta
+        } catch {
+          // Un asset que no esta en la cache y no se puede pedir. Se responde con un
+          // 504 en vez de dejar la peticion abierta para siempre: el resto de la
+          // pagina ya puede seguir, y colgar el bundle entero solo porque falte una
+          // imagen dejaria la app en blanco sin que hubiera ninguna pista de por que.
+          return new Response('', { status: 504 })
+        }
       })(),
     )
     return
@@ -130,7 +170,7 @@ self.addEventListener('fetch', (evento) => {
       const cache = await caches.open(CACHE_ASSETS)
       const enCache = await cache.match(peticion)
 
-      const desdeRed = fetch(peticion)
+      const desdeRed = pedirConEspera(peticion)
         .then(async (respuesta) => {
           if (respuesta.ok) await cache.put(peticion, respuesta.clone())
           return respuesta
@@ -152,10 +192,15 @@ self.addEventListener('fetch', (evento) => {
  * por hash y todo el bundle va con hash en el nombre. Guardarlo actualizado en
  * cada carga con conexion es lo que hace que, al volver a estar sin ella, se
  * abra la ultima version descargada y no la que se instalo por primera vez.
+ *
+ * La espera de red tiene reloj (`pedirConEspera`). Es lo que evita el fallo mas
+ * grave de una app de urgencias: sin conexion, una navegacion sin timeout no da
+ * error, se queda esperando a que el sistema operativo se rinda, y la pantalla
+ * no aparece en medio minuto. Aqui, tras unos segundos, sale la copia guardada.
  */
 async function navegacion(peticion) {
   try {
-    const respuesta = await fetch(peticion)
+    const respuesta = await pedirConEspera(peticion)
     // Solo se guarda si de verdad es la pagina: un 404 o un 5xx en HTML
     // acabaria sirviendo como pantalla de arranque.
     if (respuesta.ok) {

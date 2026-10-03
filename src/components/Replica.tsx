@@ -28,7 +28,7 @@ function cuando(iso: string): string {
 }
 
 export function PanelReplica() {
-  const { disponible, estado, ultima, error, aviso, ahora } = useReplica()
+  const { disponible, estado, ultima, error, aviso, sinConexion, ahora } = useReplica()
 
   if (!disponible) return null
 
@@ -44,9 +44,11 @@ export function PanelReplica() {
           <p className="text-xs text-texto-suave">
             {estado === 'sincronizando'
               ? 'Sincronizando...'
-              : ultima
-                ? `Ultima vez: ${cuando(ultima)}`
-                : 'Todavia no se ha sincronizado'}
+              : sinConexion
+                ? 'Sin conexion. Se subira solo en cuanto vuelvas a tenerla'
+                : ultima
+                  ? `Ultima vez: ${cuando(ultima)}`
+                  : 'Todavia no se ha sincronizado'}
           </p>
         </div>
         <Boton

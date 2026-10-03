@@ -42,10 +42,57 @@ import { useVisitas } from './ContextoVisitas'
 /** Cuanto se espera antes de subir. */
 const ESPERA = 1500
 
+/**
+ * Cuanto se espera a Turso antes de darla por inalcanzable.
+ *
+ * Es la red de seguridad que hace que la app siga siendo usable sin conexion.
+ * Sin ella, una peticion que se queda colgada mantiene `enCurso` a true para
+ * siempre: el boton "Sincronizar ahora" queda muerto hasta que se recargue la
+ * pagina, y quien este usandolo para un control clinico se queda sin poder
+ * comprobar si sus datos estan guardados.
+ */
+const PLAZO_MS = 15000
+
+/**
+ * `navigator.onLine` solo sabe si hay interfaz de red, no si hay internet: da
+ * `true` tambien en un wifi que no sale a ninguna parte. Sirve para no gastar
+ * un intento cuando el movil esta en modo avion, que es el caso claro, pero no
+ * sustituye al plazo de arriba. Los dos hacen falta.
+ */
+function hayRed(): boolean {
+  return typeof navigator === 'undefined' ? true : navigator.onLine
+}
+
+/**
+ * Promesa con plazo.
+ *
+ * El cliente HTTP de libSQL no admite cancelar una peticion a medio hacer, asi
+ * que lo que se corta es la espera, no el trabajo. La peticion abandonada, si
+ * llegara a responder, se queda sin aplicar: su resultado se descarta porque la
+ * promesa ya se rechazo. Solo puede haber escrito en la base lo que ya estaba en
+ * pantalla, y como el orden es "el mas reciente gana", la siguiente
+ * sincronizacion lo deja igual.
+ */
+function conPlazo<T>(promesa: Promise<T>, ms: number, mensaje: string): Promise<T> {
+  return new Promise<T>((resolver, rechazar) => {
+    const reloj = setTimeout(() => rechazar(new Error(mensaje)), ms)
+    promesa.then(
+      (valor) => {
+        clearTimeout(reloj)
+        resolver(valor)
+      },
+      (error) => {
+        clearTimeout(reloj)
+        rechazar(error)
+      },
+    )
+  })
+}
+
 export type EstadoReplica = 'inactiva' | 'sincronizando' | 'al-dia' | 'error'
 
 export interface ValorReplica {
-  /** Si hay base configurada. Si no, no se ofrece nada. */
+  /** Si hay base configurada. Si no, se ofrece nada. */
   disponible: boolean
   estado: EstadoReplica
   /** Ultima vez que se sincronizo, ISO. */
@@ -54,6 +101,14 @@ export interface ValorReplica {
   error: string | null
   /** Lo que cambio la ultima vez, o el aviso de la ficha creada. */
   aviso: string | null
+  /**
+   * Que se ha preferido no intentar porque no hay red.
+   *
+   * No es un error: los datos estan intactos y solo falta la copia. Se cuenta
+   * aparte para poder decirlo sin soltar un aviso de fallo cada vez que se abre
+   * la app sin conexion, que es justo cuando menos falta es.
+   */
+  sinConexion: boolean
   /** Sincroniza ya, sin esperar. Es el boton manual. */
   ahora: () => Promise<void>
   /** Sube sin esperar al temporizador, para lo que no pasa por un cambio de estado. */
@@ -109,6 +164,7 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
   const [ultima, setUltima] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
+  const [sinConexion, setSinConexion] = useState(!hayRed())
 
   /** Sincronizacion en curso, para no solaparlas. */
   const enCurso = useRef(false)
@@ -150,11 +206,25 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
 
   const sincronizarAhora = useCallback(async () => {
     if (!disponible || enCurso.current) return
+
+    // Sin red no se ni intenta. Se dice de forma explicita en vez de dejar que la
+    // peticion se quede colgada esperando, que es lo que hace que la app parezca
+    // parada cuando en realidad esta perfectamente disponible.
+    if (!hayRed()) {
+      setSinConexion(true)
+      return
+    }
+
     enCurso.current = true
     setEstado('sincronizando')
     setError(null)
+    setSinConexion(false)
     try {
-      const r = await sincronizar(local)
+      const r = await conPlazo(
+        sincronizar(local),
+        PLAZO_MS,
+        'Turso no ha contestado en 15 s. Se volvera a intentar.',
+      )
 
       // Lo que llega de fuera se fusiona con las mismas funciones que usa
       // "Restaurar". Los tombstones van dentro porque sin ellos los otros
@@ -260,6 +330,7 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
   const alVolver = useCallback(() => {
     if (!disponible || cargandoTodo) return
     if (document.visibilityState !== 'visible') return
+    setSinConexion(!hayRed())
     void actual.current()
   }, [disponible, cargandoTodo])
 
@@ -269,9 +340,14 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
 
     window.addEventListener('focus', alVolver)
     document.addEventListener('visibilitychange', alVolver)
+    // `online` cierra el caso de quien abre la app sin cobertura, anade datos y
+    // vuelve a tenerla: no hay que esperar a la siguiente medicion ni recargar para
+    // que esos datos lleguen a la base.
+    window.addEventListener('online', alVolver)
     return () => {
       window.removeEventListener('focus', alVolver)
       document.removeEventListener('visibilitychange', alVolver)
+      window.removeEventListener('online', alVolver)
     }
     // Ni `sincronizarAhora` ni `actual` van en la lista a proposito, y por lo que
     // explica `actual`. Asi este efecto solo corre al montar, y cuando cambia si hay
@@ -294,8 +370,8 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
   }, [])
 
   const valor = useMemo<ValorReplica>(
-    () => ({ disponible, estado, ultima, error, aviso, ahora: sincronizarAhora, marcarCambio }),
-    [disponible, estado, ultima, error, aviso, sincronizarAhora, marcarCambio],
+    () => ({ disponible, estado, ultima, error, aviso, sinConexion, ahora: sincronizarAhora, marcarCambio }),
+    [disponible, estado, ultima, error, aviso, sinConexion, sincronizarAhora, marcarCambio],
   )
 
   return <ContextoReplica.Provider value={valor}>{children}</ContextoReplica.Provider>
