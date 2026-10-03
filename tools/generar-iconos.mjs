@@ -57,9 +57,23 @@ function dentroRectRedondeado(px, py, x0, y0, x1, y1, r) {
 function dibujar(tamano, { maskable = false } = {}) {
   const salida = new Uint8Array(tamano * tamano * 4)
   const margen = maskable ? tamano * 0.12 : 0
-  const radio = maskable ? tamano * 0.5 : tamano * 0.22
-  const grosor = tamano * (maskable ? 0.055 : 0.075)
   const escala = tamano - margen * 2
+
+  // El radio es una fraccion del RECTANGULO, no del lienzo. Antes valia
+  // `tamano * 0.5` en el maskable, donde el rectangulo mide 0.76 * tamano: al
+  // pasar de la mitad, `dentroRectRedondeado` degeneraba en un circulo desplazado
+  // hacia la esquina inferior derecha que se salia del lienzo. Es el corte que se
+  // veia en el icono de la app.
+  //
+  // 0.5 seria un circulo; 0.4 sigue leyendose como cuadrado pero con las esquinas
+  // muy redondeadas, que es lo que se quiere.
+  const radio = escala * 0.4
+
+  // `grosor` es la SEMIanchura: la condicion mide distancia al segmento, asi que
+  // el ancho real de la linea es el doble. Antes valia 0.075 * tamano y la linea
+  // salia con un ancho de 0.15 del icono, que es lo que fusionaba las crestas en
+  // una sola mancha.
+  const grosor = escala * 0.035
   const fijar = (valor) => Math.max(0, Math.min(255, Math.round(valor)))
 
   for (let y = 0; y < tamano; y++) {
@@ -87,11 +101,18 @@ function dibujar(tamano, { maskable = false } = {}) {
           }
           const nx = (px - margen) / escala
           const ny = (py - margen) / escala
+          // Cada segmento se trata como una capsula: la distancia al segmento
+          // MENOS el radio. Asi el trazo sale con los extremos y las uniones
+          // redondeados de una sola vez, y con exactamente `grosor` de semianchura.
+          //
+          // Restar el radio fuera del `min` y no dentro importa: si no, el extremo
+          // redondo sale con el doble de ancho que la linea y la linea acaba
+          // pareciendo un hueso.
           let d = Infinity
           for (let s = 0; s < PULSO.length - 1; s++) {
-            d = Math.min(d, distanciaSegmento(nx, ny, PULSO[s], PULSO[s + 1]))
+            d = Math.min(d, distanciaSegmento(nx, ny, PULSO[s], PULSO[s + 1]) - grosor / escala)
           }
-          if (d * escala <= grosor) linea++
+          if (d <= 0) linea++
         }
       }
 
