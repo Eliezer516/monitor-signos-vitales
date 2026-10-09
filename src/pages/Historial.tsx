@@ -94,8 +94,7 @@ export function PaginaHistorial() {
           String(r.presionSis).includes(term) ||
           String(r.presionDia).includes(term) ||
           String(r.o2).includes(term) ||
-          String(r.bpm).includes(term) ||
-          (r.orina !== null && String(r.orina).includes(term)),
+          String(r.bpm).includes(term),
       );
     }
 

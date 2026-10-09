@@ -13,6 +13,7 @@ import type {
   Paciente,
   PresionHabitual,
   Registro,
+  Sonda,
   Umbrales,
   Visita,
 } from './tipos'
@@ -36,7 +37,7 @@ function descargar(blob: Blob, nombre: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
-const cabecera = ['Fecha', 'Hora', 'Presion sistolica', 'Presion diastolica', 'O2 (%)', 'Pulso (lpm)', 'Orina (ml)', 'Notas']
+const cabecera = ['Fecha', 'Hora', 'Presion sistolica', 'Presion diastolica', 'O2 (%)', 'Pulso (lpm)', 'Notas']
 
 /** Filas de un registro, en el orden de `cabecera`. */
 const fila = (r: Registro) => [
@@ -49,7 +50,6 @@ const fila = (r: Registro) => [
   r.presionDia,
   r.o2,
   r.bpm,
-  r.orina ?? '',
   r.notas,
 ]
 
@@ -112,6 +112,60 @@ export async function exportarVisitasXLSX(
 }
 
 /**
+ * Exporta los vaciados de la sonda a CSV.
+ *
+ * Se repite el escapado a proposito, igual que en `exportarVisitasCSV`: son dos
+ * lineas y asi cada exportacion se lee sola.
+ */
+export function exportarSondasCSV(sondas: Sonda[], nombreArchivo = 'sonda'): void {
+  const escapar = (v: unknown) => {
+    const s = String(v ?? '')
+    return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const lineas = [
+    CABECERA_SONDAS.map(escapar).join(';'),
+    ...sondas.map((s) => filaSonda(s).map(escapar).join(';')),
+  ]
+  const csv = '\uFEFFsep=;\n' + lineas.join('\r\n')
+  descargar(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `${nombreArchivo}.csv`)
+}
+
+/**
+ * Exporta los vaciados de la sonda a Excel (.xlsx) con una hoja propia.
+ *
+ * Es un archivo aparte y no una hoja mas del Excel de mediciones porque se
+ * exporta en un momento distinto: el informe de signos se analiza en casa, y
+ * el de la sonda se lleva a la consulta.
+ */
+export async function exportarSondasXLSX(
+  sondas: Sonda[],
+  nombreArchivo = 'sonda',
+): Promise<void> {
+  const { default: writeXlsxFile } = await import('write-excel-file/browser')
+  const hoja = writeXlsxFile([
+    {
+      sheet: 'Sonda',
+      data: [CABECERA_SONDAS, ...sondas.map((s) => filaSonda(s))],
+      columns: CABECERA_SONDAS.map((t) => ({ width: Math.max(14, t.length + 4) })),
+    },
+  ])
+  await hoja.toFile(`${nombreArchivo}.xlsx`)
+}
+
+/** Cabecera del CSV y de la hoja de Excel de sondas, en el orden de `filaSonda`. */
+export const CABECERA_SONDAS: string[] = [
+  'Fecha',
+  'Hora',
+  'Volumen (ml)',
+  'Notas',
+]
+
+/** Fila de un vaciado en el mismo orden que `CABECERA_SONDAS`. */
+export function filaSonda(s: Sonda): (string | number)[] {
+  return [s.fecha, s.hora, s.volumen, s.notas]
+}
+
+/**
  * Exporta a Excel (.xlsx) con dos hojas: registros y resumen diario.
  * La libreria se carga bajo demanda para no penalizar el arranque.
  */
@@ -134,7 +188,6 @@ export async function exportarXLSX(
     return [
       d,
       s.registros.length,
-      s.totalOrina,
       s.promedioPresionSis ?? '',
       s.promedioPresionDia ?? '',
       s.minO2 ?? '',
@@ -143,7 +196,7 @@ export async function exportarXLSX(
     ]
   })
   const filasResumen: (string | number)[][] = [
-    ['Fecha', 'Mediciones', 'Orina total (ml)', 'Prom. sistolica', 'Prom. diastolica', 'O2 min', 'O2 max', 'Prom. pulso'],
+    ['Fecha', 'Mediciones', 'Prom. sistolica', 'Prom. diastolica', 'O2 min', 'O2 max', 'Prom. pulso'],
     ...resumenes,
   ]
 
@@ -190,6 +243,8 @@ export interface Backup {
   pacientes: Paciente[]
   /** Presente desde v2. */
   visitas?: Visita[]
+  /** Vaciados de la sonda. */
+  sondas?: Sonda[]
   /** Presente desde v3. Marcas de lo que se borro, para propagar el borrado. */
   borrados?: Borrado[]
   /** Presente desde v3. Solo la parte de Ajustes que se comparte. */
@@ -203,6 +258,7 @@ export interface DatosBackup {
   registros: Registro[]
   pacientes: Paciente[]
   visitas?: Visita[]
+  sondas?: Sonda[]
   borrados?: Borrado[]
   ajustes?: AjustesCompartidos
   marcas?: MarcasCompartidas
@@ -217,6 +273,7 @@ export function construirBackup(datos: DatosBackup): Backup {
     registros: datos.registros,
     pacientes: datos.pacientes,
     visitas: datos.visitas ?? [],
+    sondas: datos.sondas ?? [],
     borrados: datos.borrados ?? [],
     ...(datos.ajustes ? { ajustes: datos.ajustes } : {}),
     ...(datos.marcas ? { marcas: datos.marcas } : {}),
@@ -294,6 +351,7 @@ export function leerBackup(texto: string): {
   registros: Registro[]
   pacientes: Paciente[]
   visitas: Visita[]
+  sondas: Sonda[]
   borrados: Borrado[]
   ajustes: Partial<AjustesCompartidos> | null
   marcas: MarcasCompartidas
@@ -323,7 +381,6 @@ export function leerBackup(texto: string): {
     })
     .map((r) => {
       const c = r as unknown as Record<string, unknown>
-      // `orina` es opcional: ausente o vacia significa "sin medir".
       return {
         id:
           typeof c.id === 'string' && c.id
@@ -335,7 +392,6 @@ export function leerBackup(texto: string): {
         presionDia: aNumero(c.presionDia) as number,
         o2: aNumero(c.o2) as number,
         bpm: aNumero(c.bpm) as number,
-        orina: aNumero(c.orina),
         notas: typeof c.notas === 'string' ? c.notas : '',
         createdAt:
           typeof c.createdAt === 'string' ? c.createdAt : `${c.fecha}T${c.hora}:00`,
@@ -394,12 +450,44 @@ export function leerBackup(texto: string): {
       typeof (b as Borrado).borradoAt === 'string' &&
       ((b as Borrado).ambito === 'registros' ||
         (b as Borrado).ambito === 'visitas' ||
+        (b as Borrado).ambito === 'sondas' ||
         (b as Borrado).ambito === 'pacientes'),
   )
 
+  // Las sondas se validan con la misma politica que las mediciones: se descarta
+  // la que este mal formada en vez de rechazar el archivo entero. Un volumen
+  // ausente tambien la descarta, porque un vaciado sin volumen no dice nada.
+  const crudasSondas: unknown[] = Array.isArray(datos.sondas) ? datos.sondas : []
+  const sondas: Sonda[] = crudasSondas
+    .filter((s: unknown): s is Sonda => {
+      if (!s || typeof s !== 'object') return false
+      const c = s as Record<string, unknown>
+      return (
+        typeof c.fecha === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(c.fecha) &&
+        typeof c.hora === 'string' &&
+        /^\d{2}:\d{2}$/.test(c.hora) &&
+        aNumero(c.volumen) !== null
+      )
+    })
+    .map((s) => {
+      const c = s as unknown as Record<string, unknown>
+      return {
+        id:
+          typeof c.id === 'string' && c.id ? c.id : `import-${Math.random().toString(36).slice(2)}`,
+        fecha: c.fecha as string,
+        hora: c.hora as string,
+        volumen: aNumero(c.volumen) as number,
+        notas: typeof c.notas === 'string' ? c.notas : '',
+        createdAt:
+          typeof c.createdAt === 'string' ? c.createdAt : `${c.fecha}T${c.hora}:00`,
+        ...marca(c),
+      }
+    })
+
   const { ajustes, marcas } = leerAjustesCompartidos(datos)
 
-  return { registros, pacientes, visitas, borrados, ajustes, marcas }
+  return { registros, pacientes, visitas, sondas, borrados, ajustes, marcas }
 }
 
 /**
@@ -484,9 +572,11 @@ export function reporteHTML(
      * desde codigo anterior, y porque un paciente puede no tener ninguna.
      */
     visitas?: Visita[]
+    /** Vaciados de la sonda del periodo. */
+    sondas?: Sonda[]
   },
 ): string {
-  const { paciente, desde, hasta, umbral, presionHabitual, visitas = [] } = opciones
+  const { paciente, desde, hasta, umbral, presionHabitual, visitas = [], sondas = [] } = opciones
   const dias = [...new Set(registros.map((r) => r.fecha))].sort()
   const esc = (s: unknown) =>
     String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
@@ -499,7 +589,6 @@ export function reporteHTML(
       <td class="num">${esc(r.presionSis)}/${esc(r.presionDia)}</td>
       <td class="num">${esc(r.o2)}%</td>
       <td class="num">${esc(r.bpm)}</td>
-      <td class="num">${r.orina === null ? '-' : esc(r.orina)}</td>
       <td class="notas">${esc(r.notas)}</td>
     </tr>`,
     )
@@ -511,7 +600,6 @@ export function reporteHTML(
       return `<tr>
         <td>${esc(fechaCompleta(d))}</td>
         <td class="num">${s.registros.length}</td>
-        <td class="num">${s.totalOrina}</td>
         <td class="num">${s.promedioPresionSis ?? '-'}/${s.promedioPresionDia ?? '-'}</td>
         <td class="num">${s.minO2 ?? '-'} - ${s.maxO2 ?? '-'}</td>
         <td class="num">${s.promedioBPM ?? '-'}</td>
@@ -538,6 +626,26 @@ export function reporteHTML(
     </tr>`,
     )
     .join('')
+
+  // Los vaciados de la sonda del periodo, con el total drenado. Es el dato que
+  // permite juzgar la funcion renal sin tener que reconstruir la serie de
+  // mediciones: si el total baja, algo pasa.
+  const sondasPeriodo = sondas
+    .filter((s) => s.fecha >= desde && s.fecha <= hasta)
+    .sort((a, b) => (a.fecha === b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)))
+
+  const sondaFilas = sondasPeriodo
+    .map(
+      (s) => `<tr>
+      <td>${esc(s.fecha.split('-').reverse().join('/'))}</td>
+      <td class="nowrap">${esc(hora12(s.hora))}</td>
+      <td class="num">${esc(s.volumen)} ml</td>
+      <td class="notas">${esc(s.notas || '-')}</td>
+    </tr>`,
+    )
+    .join('')
+
+  const totalSonda = sondasPeriodo.reduce((a, s) => a + s.volumen, 0)
 
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
@@ -574,20 +682,29 @@ export function reporteHTML(
   <h2>Resumen por dia</h2>
   <table>
     <thead><tr>
-      <th>Fecha</th><th class="num">Tomas</th><th class="num">Orina (ml)</th>
+      <th>Fecha</th><th class="num">Tomas</th>
       <th class="num">Presion prom.</th><th class="num">O2 min-max</th><th class="num">Pulso prom.</th>
     </tr></thead>
-    <tbody>${resumenFilas || '<tr><td colspan="6">Sin registros en el periodo</td></tr>'}</tbody>
+    <tbody>${resumenFilas || '<tr><td colspan="5">Sin registros en el periodo</td></tr>'}</tbody>
   </table>
 
   <h2>Detalle de mediciones</h2>
   <table>
     <thead><tr>
       <th>Fecha</th><th>Hora</th><th class="num">Presion</th>
-      <th class="num">O2</th><th class="num">Pulso</th><th class="num">Orina</th><th>Notas</th>
+      <th class="num">O2</th><th class="num">Pulso</th><th>Notas</th>
     </tr></thead>
-    <tbody>${filas || '<tr><td colspan="7">Sin registros en el periodo</td></tr>'}</tbody>
+    <tbody>${filas || '<tr><td colspan="6">Sin registros en el periodo</td></tr>'}</tbody>
   </table>
+
+  <h2>Vaciados de la sonda</h2>
+  <table>
+    <thead><tr>
+      <th>Fecha</th><th>Hora</th><th class="num">Volumen</th><th>Notas</th>
+    </tr></thead>
+    <tbody>${sondaFilas || '<tr><td colspan="4">Sin vaciados en el periodo</td></tr>'}</tbody>
+  </table>
+  <p class="sub">Total drenado en el periodo: <strong>${totalSonda} ml</strong></p>
 
   <h2>Visitas medicas y a domicilio</h2>
   <table>
@@ -603,8 +720,7 @@ export function reporteHTML(
     sistolica ${esc(umbral.presionSisMin)}-${esc(umbral.presionSisMax)} mmHg &middot;
     diastolica ${esc(umbral.presionDiaMin)}-${esc(umbral.presionDiaMax)} mmHg &middot;
     O2 &ge; ${esc(umbral.o2Min)}% &middot;
-    pulso ${esc(umbral.bpmMin)}-${esc(umbral.bpmMax)} lpm &middot;
-    orina ${esc(umbral.orinaMin)}-${esc(umbral.orinaMax)} ml/dia. · Presion habitual: ${esc(
+    pulso ${esc(umbral.bpmMin)}-${esc(umbral.bpmMax)} lpm &middot; Presion habitual: ${esc(
       presionHabitual?.sis ?? paciente?.presionHabitual?.sis ?? 120,
     )}/${esc(presionHabitual?.dia ?? paciente?.presionHabitual?.dia ?? 80)} mmHg.
     Documento generado automaticamente. No sustituye la valoracion medica profesional.

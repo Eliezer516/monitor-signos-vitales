@@ -17,7 +17,7 @@ function ok(nombre: string, cond: boolean, extra = '') {
 }
 
 console.log('1. O2 por encima de 100 (sensor sobredimensionado)')
-const base = { fecha: claveDia(new Date()), hora: '10:00', presionSis: 120, presionDia: 80, o2: 100, bpm: 70, orina: null, notas: '' }
+const base = { fecha: claveDia(new Date()), hora: '10:00', presionSis: 120, presionDia: 80, o2: 100, bpm: 70, notas: '' }
 // `errores` es un objeto campo -> mensaje, no una lista.
 const nErrores = (o: Partial<typeof base> & { o2?: number }) =>
   Object.keys(validarRegistro({ ...base, ...o } as never, LIMITES_POR_DEFECTO).errores).length
@@ -41,7 +41,7 @@ console.log('3. Datos de ejemplo y resumen')
 const demo = crearRegistrosDemo(new Date('2026-09-30T12:00:00'))
 ok('genera 12 registros', demo.length === 12, `(${demo.length})`)
 ok('sin o2 fuera de rango', demo.every(r => r.o2 >= 70 && r.o2 <= 102))
-ok('sin Orphan en 1500ml', demo.every(r => r.orina === null || r.orina <= 3000))
+ok('los registros demo ya no llevan orina', demo.every(r => !('orina' in r)))
 const hoy = '2026-09-30'
 const resumen = resumenDia(demo, hoy)
 ok('resumen cuenta los de hoy', resumen.registros.length === 4, `(${resumen.registros.length})`)
@@ -100,7 +100,7 @@ ok('descarta los 4 registros corruptos y conserva el bueno', leido.registros.len
 ok('conserva la fecha del bueno', leido.registros[0]?.fecha === '2026-09-29')
 ok('descarta hora invalida', leido.registros.every(r => /^\d{2}:\d{2}$/.test(r.hora)))
 ok('descarta campos numericos vacios (no los convierte en 0)', leido.registros.every(r => r.o2 > 0 && r.presionSis > 0))
-ok('orina ausente queda null', leido.registros.every(r => r.orina === null))
+ok('la orina del backup se descarta (la sonda es entidad aparte)', leido.registros.every(r => !('orina' in r)))
 ok('genera id si falta', leido.registros.every(r => typeof r.id === 'string' && r.id.length > 0))
 ok('conserva pacientes', leido.pacientes.length === 1)
 ok('un backup v1 sin clave "visitas" no rompe la lectura', leido.visitas.length === 0)
@@ -117,7 +117,7 @@ const v3 = JSON.stringify({
   version: 3,
   app: 'signos-vitales',
   exportadoEn: '2026-10-02T10:00:00.000Z',
-  registros: [{ id: 'r1', fecha: '2026-10-01', hora: '08:00', presionSis: 120, presionDia: 80, o2: 97, bpm: 70, orina: null, notas: '', createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T09:00:00.000Z' }],
+  registros: [{ id: 'r1', fecha: '2026-10-01', hora: '08:00', presionSis: 120, presionDia: 80, o2: 97, bpm: 70, notas: '', createdAt: '2026-10-01T08:00:00.000Z', updatedAt: '2026-10-01T09:00:00.000Z' }],
   visitas: [],
   pacientes: [],
   borrados: [
@@ -269,10 +269,10 @@ console.log('9. Texto para copiar del historial')
 // El boton de copiar se usa para mandar "lo de hoy" por WhatsApp o correo. Se
 // comprueba el formato exacto porque es lo que el usuario pega en el mensaje:
 // un bloque por medicion, con la fecha y la hora arriba y un dato por linea.
-const r1 = { ...base, fecha: '2026-10-02', hora: '05:40', presionSis: 120, presionDia: 80, o2: 100, bpm: 90, orina: 200, notas: '' }
-const r2 = { ...base, fecha: '2026-10-02', hora: '20:30', presionSis: 128, presionDia: 84, o2: 93, bpm: 81, orina: null, notas: '' }
-const r3 = { ...base, fecha: '2026-09-29', hora: '00:15', presionSis: 118, presionDia: 76, o2: 97, bpm: 66, orina: 120, notas: '' }
-const r4 = { ...base, fecha: '2026-10-02', hora: '14:00', presionSis: 118, presionDia: 78, o2: 99, bpm: 74, orina: null, notas: 'Furosemida' }
+const r1 = { ...base, fecha: '2026-10-02', hora: '05:40', presionSis: 120, presionDia: 80, o2: 100, bpm: 90, notas: '' }
+const r2 = { ...base, fecha: '2026-10-02', hora: '20:30', presionSis: 128, presionDia: 84, o2: 93, bpm: 81, notas: '' }
+const r3 = { ...base, fecha: '2026-09-29', hora: '00:15', presionSis: 118, presionDia: 76, o2: 97, bpm: 66, notas: '' }
+const r4 = { ...base, fecha: '2026-10-02', hora: '14:00', presionSis: 118, presionDia: 78, o2: 99, bpm: 74, notas: 'Furosemida' }
 
 ok('una medicion: fecha y hora, linea en blanco y un dato por linea',
   textoMedicion(r1) === [
@@ -281,15 +281,14 @@ ok('una medicion: fecha y hora, linea en blanco y un dato por linea',
     'Presion: 120/80',
     'O2: 100%',
     'Pulso: 90',
-    'Orina: 200 ml',
   ].join('\n'),
   JSON.stringify(textoMedicion(r1)))
 
-ok('la orina ausente es un guion, no "null"',
-  textoMedicion(r2).includes('Orina: -') && !textoMedicion(r2).includes('null'),
+ok('el copiar ya no menciona orina (es una entidad aparte)',
+  !textoMedicion(r2).includes('Orina'),
   textoMedicion(r2))
 ok('las notas van como un dato mas, con su etiqueta',
-  textoMedicion(r4).endsWith('Orina: -\nNotas: Furosemida'), textoMedicion(r4))
+  textoMedicion(r4).endsWith('Pulso: 74\nNotas: Furosemida'), textoMedicion(r4))
 ok('sin notas no se deja una linea vacia al final',
   !textoMedicion(r1).endsWith('\n') && !textoMedicion(r1).includes('Notas'),
   textoMedicion(r1))

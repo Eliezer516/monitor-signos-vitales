@@ -127,7 +127,6 @@ export function ListaMediciones({
               <th className="py-2 pr-2 font-medium">Presion</th>
               <th className="py-2 pr-2 font-medium">O2</th>
               <th className="py-2 pr-2 font-medium">Pulso</th>
-              <th className="py-2 pr-2 font-medium">Orina</th>
               {!compacta && <th className="py-2 pr-2 font-medium">Notas</th>}
               {(onEditar || onEliminar || onCopiar) && <th className="py-2 font-medium" />}
             </tr>
@@ -219,16 +218,6 @@ function FilaMedicion({
       </td>
       <td className={cx('py-2.5 pr-2 font-medium tabular-nums', colorNivel(nv.o2))}>{r.o2}%</td>
       <td className={cx('py-2.5 pr-2 font-medium tabular-nums', colorNivel(nv.bpm))}>{r.bpm}</td>
-      <td className="py-2.5 pr-2 tabular-nums">
-        {r.orina === null ? (
-          <span className="text-texto-suave">-</span>
-        ) : (
-          <>
-            <span className="font-medium">{r.orina}</span>
-            <span className="text-xs text-texto-suave"> ml</span>
-          </>
-        )}
-      </td>
       {!compacta && (
         <td className="max-w-56 truncate py-2.5 pr-2 text-texto-suave" title={r.notas}>
           {r.notas || '-'}
@@ -336,11 +325,10 @@ function TarjetaMedicion({
           )}
         </div>
       </div>
-      <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+      <div className="mt-2 grid grid-cols-3 gap-1 text-center">
         <Celda etiqueta="Presion" valor={`${r.presionSis}/${r.presionDia}`} nivel={peor(nv.sis, nv.dia)} />
         <Celda etiqueta="O2" valor={`${r.o2}%`} nivel={nv.o2} />
         <Celda etiqueta="Pulso" valor={String(r.bpm)} nivel={nv.bpm} />
-        <Celda etiqueta="Orina" valor={r.orina === null ? '-' : String(r.orina)} nivel="ok" />
       </div>
       {!compacta && r.notas && (
         <p className="mt-2 border-t border-borde pt-2 text-xs text-texto-suave">{r.notas}</p>
@@ -427,12 +415,6 @@ export function ResumenDiaFila({ resumen }: { resumen: ResumenDia }) {
         etiqueta="Tomas"
         valor={String(resumen.registros.length)}
         icono={<IconoReloj width={14} height={14} />}
-      />
-      <CeldaResumen
-        etiqueta="Orina"
-        valor={`${resumen.totalOrina}`}
-        sufijo="ml"
-        icono={<IconoGota width={14} height={14} />}
       />
       <CeldaResumen
         etiqueta="Presion"

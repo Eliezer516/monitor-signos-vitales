@@ -42,12 +42,14 @@ import type {
   MarcasCompartidas,
   Paciente,
   Registro,
+  Sonda,
   Visita,
 } from '../tipos'
-import type { ajustes, borrados, pacientes, registros, visitas } from './schema'
+import type { ajustes, borrados, pacientes, registros, sondas, visitas } from './schema'
 
 export type FilaRegistro = typeof registros.$inferSelect
 export type FilaVisita = typeof visitas.$inferSelect
+export type FilaSonda = typeof sondas.$inferSelect
 export type FilaPaciente = typeof pacientes.$inferSelect
 export type FilaBorrado = typeof borrados.$inferSelect
 export type FilaAjustes = typeof ajustes.$inferSelect
@@ -72,13 +74,19 @@ function marca(e: { createdAt: string; updatedAt?: string }): string {
 export interface Reparto {
   registros: Map<string, string>
   visitas: Map<string, string>
+  sondas: Map<string, string>
 }
 
 /** Recoge el reparto actual de la base, para no reasignar nada ya subido. */
-export function leerReparto(filasR: FilaRegistro[], filasV: FilaVisita[]): Reparto {
+export function leerReparto(
+  filasR: FilaRegistro[],
+  filasV: FilaVisita[],
+  filasS: FilaSonda[],
+): Reparto {
   return {
     registros: new Map(filasR.map((f) => [f.id, f.pacienteId])),
     visitas: new Map(filasV.map((f) => [f.id, f.pacienteId])),
+    sondas: new Map(filasS.map((f) => [f.id, f.pacienteId])),
   }
 }
 
@@ -136,9 +144,6 @@ export function registroAFila(r: Registro, pacienteId: string): typeof registros
     presionDia: r.presionDia,
     o2: r.o2,
     bpm: r.bpm,
-    // `null` es un dato real: significa que en esa toma no se midio orina. No es
-    // un campo vacio que se pueda confundir con que se olvido.
-    orina: r.orina,
     notas: r.notas ?? '',
     ejemplo: r.ejemplo ?? false,
     createdAt: r.createdAt,
@@ -155,7 +160,37 @@ export function filaARegistro(f: FilaRegistro): Registro {
     presionDia: f.presionDia,
     o2: f.o2,
     bpm: f.bpm,
-    orina: f.orina,
+    notas: f.notas,
+    ejemplo: f.ejemplo,
+    createdAt: f.createdAt,
+    updatedAt: f.updatedAt,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sondas
+// ---------------------------------------------------------------------------
+
+export function sondaAFila(s: Sonda, pacienteId: string): typeof sondas.$inferInsert {
+  return {
+    id: s.id,
+    pacienteId,
+    fecha: s.fecha,
+    hora: s.hora,
+    volumen: s.volumen,
+    notas: s.notas ?? '',
+    ejemplo: s.ejemplo ?? false,
+    createdAt: s.createdAt,
+    updatedAt: marca(s),
+  }
+}
+
+export function filaASonda(f: FilaSonda): Sonda {
+  return {
+    id: f.id,
+    fecha: f.fecha,
+    hora: f.hora,
+    volumen: f.volumen,
     notas: f.notas,
     ejemplo: f.ejemplo,
     createdAt: f.createdAt,

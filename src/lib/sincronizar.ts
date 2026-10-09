@@ -35,6 +35,7 @@ import type {
   MarcasCompartidas,
   Paciente,
   Registro,
+  Sonda,
   Visita,
 } from './tipos'
 
@@ -42,6 +43,7 @@ import type {
 export interface EstadoLocal {
   registros: Registro[]
   visitas: Visita[]
+  sondas: Sonda[]
   pacientes: Paciente[]
   borrados: Borrado[]
   ajustes: AjustesCompartidos
@@ -58,6 +60,7 @@ export interface EstadoLocal {
 export interface EstadoRemoto {
   registros?: Registro[]
   visitas?: Visita[]
+  sondas?: Sonda[]
   pacientes?: Paciente[]
   borrados?: Borrado[]
   ajustes?: Partial<AjustesCompartidos> | null
@@ -68,6 +71,7 @@ export interface EstadoRemoto {
 export interface ResumenSincronizacion {
   registros: ResultadoFusion<Registro>
   visitas: ResultadoFusion<Visita>
+  sondas: ResultadoFusion<Sonda>
   pacientes: ResultadoFusion<Paciente>
   /** Campos de ajustes compartidos que han cambiado de verdad. */
   ajustes: number
@@ -81,7 +85,7 @@ export interface ResumenSincronizacion {
 }
 
 /** Las colecciones que puede traer un paquete, y que tienen que ser listas. */
-const COLECCIONES = ['registros', 'visitas', 'pacientes', 'borrados'] as const
+const COLECCIONES = ['registros', 'visitas', 'sondas', 'pacientes', 'borrados'] as const
 
 /**
  * Comprueba que un texto es un paquete nuestro y tiene la forma esperada antes
@@ -122,7 +126,7 @@ export function esPaqueteValido(bruto: string): boolean {
       if (!b || typeof b !== 'object') return false
       const marca = b as Record<string, unknown>
       if (typeof marca.ambito !== 'string' || typeof marca.id !== 'string') return false
-      if (marca.ambito !== 'registros' && marca.ambito !== 'visitas' && marca.ambito !== 'pacientes')
+      if (marca.ambito !== 'registros' && marca.ambito !== 'visitas' && marca.ambito !== 'pacientes' && marca.ambito !== 'sondas')
         return false
       if (typeof marca.borradoAt !== 'string') return false
     }
@@ -188,6 +192,7 @@ export function fusionarPaquetes(
   const borrados = fusionarBorrados(local.borrados, remoto?.borrados ?? [])
   const registros = emparejar(local.registros, remoto?.registros ?? [], borrados, 'registros')
   const visitas = emparejar(local.visitas, remoto?.visitas ?? [], borrados, 'visitas')
+  const sondas = emparejar(local.sondas, remoto?.sondas ?? [], borrados, 'sondas')
   const pacientes = emparejar(local.pacientes, remoto?.pacientes ?? [], borrados, 'pacientes')
   const ajustes = fusionarAjustes(
     local.ajustes,
@@ -199,6 +204,7 @@ export function fusionarPaquetes(
   const paquete = construirBackup({
     registros: registros.fusionados,
     visitas: visitas.fusionados,
+    sondas: sondas.fusionados,
     pacientes: pacientes.fusionados,
     borrados,
     ajustes: ajustes.ajustes,
@@ -210,9 +216,10 @@ export function fusionarPaquetes(
     resumen: {
       registros,
       visitas,
+      sondas,
       pacientes,
       ajustes: ajustes.pisados,
-      enviados: registros.enviables + visitas.enviables + pacientes.enviables,
+      enviados: registros.enviables + visitas.enviables + sondas.enviables + pacientes.enviables,
     },
   }
 }
@@ -220,14 +227,14 @@ export function fusionarPaquetes(
 /** Texto corto con lo que ha cambiado, para el aviso de quien lo ve. */
 export function resumirCambios(r: ResumenSincronizacion): string {
   const partes: string[] = []
-  const nuevos = r.registros.entraron + r.visitas.entraron + r.pacientes.entraron
+  const nuevos = r.registros.entraron + r.visitas.entraron + r.sondas.entraron + r.pacientes.entraron
   if (nuevos) partes.push(`${nuevos} datos nuevos`)
 
   const actualizados =
-    r.registros.pisados + r.visitas.pisados + r.pacientes.pisados + r.ajustes
+    r.registros.pisados + r.visitas.pisados + r.sondas.pisados + r.pacientes.pisados + r.ajustes
   if (actualizados) partes.push(`${actualizados} actualizados`)
 
-  const borrados = r.registros.borradosAplicados + r.visitas.borradosAplicados
+  const borrados = r.registros.borradosAplicados + r.visitas.borradosAplicados + r.sondas.borradosAplicados
   if (borrados) partes.push(`${borrados} borrados en el otro dispositivo`)
 
   if (r.enviados) partes.push(`${r.enviados} enviados`)

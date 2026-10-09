@@ -89,8 +89,6 @@ export const registros = sqliteTable(
     presionDia: integer('presion_dia').notNull(),
     o2: integer('o2').notNull(),
     bpm: integer('bpm').notNull(),
-    /** `null` cuando no se midio orina en esa toma. */
-    orina: integer('orina'),
     notas: text('notas').notNull().default(''),
     /** Marca los registros de los datos de ejemplo, que se borran de un golpe. */
     ejemplo: integer('ejemplo', { mode: 'boolean' }).notNull().default(false),
@@ -128,6 +126,35 @@ export const visitas = sqliteTable(
 )
 
 /**
+ * Vaciados de la bolsa de la sonda.
+ *
+ * Una tabla propia y no una columna de `registros` porque la sonda se vacia
+ * cuando toca, no cuando se mide la tension. Guardar el volumen junto a la
+ * medicion obligaria a elegir entre dejar la medicion a medias o inventarse
+ * un volumen.
+ *
+ * `volumen` es obligatorio: un vaciado sin volumen no dice nada, y el dato que
+ * le interesa al medico es justo el total drenado.
+ */
+export const sondas = sqliteTable(
+  'sondas',
+  {
+    id: text('id').primaryKey(),
+    pacienteId: text('paciente_id')
+      .notNull()
+      .references(() => pacientes.id, { onDelete: 'cascade' }),
+    fecha: text('fecha').notNull(),
+    hora: text('hora').notNull(),
+    volumen: integer('volumen').notNull(),
+    notas: text('notas').notNull().default(''),
+    ejemplo: integer('ejemplo', { mode: 'boolean' }).notNull().default(false),
+    createdAt: iso('created_at').notNull(),
+    updatedAt: iso('updated_at').notNull(),
+  },
+  (t) => [index('sondas_paciente_fecha').on(t.pacienteId, t.fecha)],
+)
+
+/**
  * Marcas de lo que se ha borrado.
  *
  * Una tabla aparte y no una columna `borrado`: borrar de verdad una fila deja la
@@ -143,7 +170,7 @@ export const visitas = sqliteTable(
 export const borrados = sqliteTable(
   'borrados',
   {
-    ambito: text('ambito', { enum: ['registros', 'visitas', 'pacientes'] }).notNull(),
+    ambito: text('ambito', { enum: ['registros', 'visitas', 'pacientes', 'sondas'] }).notNull(),
     id: text('id').notNull(),
     borradoAt: iso('borrado_at').notNull(),
   },

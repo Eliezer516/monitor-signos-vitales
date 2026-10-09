@@ -3,7 +3,7 @@
  *
  * Prioridad de lectura, de arriba abajo:
  *  1. Alertas que requieren atencion (si hay).
- *  2. Totales del dia (orina acumulada y promedios).
+ *  2. Totales del dia (sonda acumulada y promedios).
  *  3. Movimientos de las ultimas 24 horas.
  *
  * El registro va en un boton flotante en la esquina inferior derecha: es la
@@ -13,9 +13,10 @@
 
 import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
+import { useSondas } from '../context/ContextoSondas'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useAvisos } from '../components/Avisos'
-import { alertasDelDia, resumenDia, nivelDia } from '../lib/resumen'
+import { alertasDelDia, resumenDia, resumenSondaDia, nivelDia } from '../lib/resumen'
 import { aDate, etiquetaRelativa, fechaCorta, haceCuanto, hora12 } from '../lib/fechas'
 import { evaluarBpm, evaluarDia, evaluarO2, evaluarSis } from '../lib/rangos'
 import { copiarTexto, textoMediciones } from '../lib/texto'
@@ -25,11 +26,13 @@ import { BotonFlotante, Insignia, Tarjeta, cx } from '../components/UI'
 import { IconoGota, IconoOximetro, IconoPulso, IconoCorazon, IconoMas, IconoCopiar } from '../components/Iconos'
 import { Calendario } from '../components/Calendario'
 import { FormularioRapido } from '../components/FormularioRapido'
+import { FormularioSonda } from '../components/FormularioSonda'
 import { useHoy } from '../hooks/useHoy'
 import { useAhora } from '../hooks/useAhora'
 
 export function PaginaInicio({ onIrRegistrar }: { onIrRegistrar: () => void }) {
   const { registros, eliminar, cargando } = useRegistros()
+  const { sondas } = useSondas()
   const { ajustes, paciente, presionHabitual } = useAjustes()
   const { aviso } = useAvisos()
   const hoy = useHoy()
@@ -41,8 +44,12 @@ export function PaginaInicio({ onIrRegistrar }: { onIrRegistrar: () => void }) {
     () => resumenDia(registros, diaSeleccionado),
     [registros, diaSeleccionado],
   )
+  const resumenSonda = useMemo(
+    () => resumenSondaDia(sondas, diaSeleccionado),
+    [sondas, diaSeleccionado],
+  )
   const esHoy = diaSeleccionado === hoy
-const nivel = nivelDia(resumen, ajustes.umbral, !esHoy, presionHabitual)
+  const nivel = nivelDia(resumen, ajustes.umbral, presionHabitual)
   const alertas = useMemo(
     () => alertasDelDia(registros, diaSeleccionado, ajustes.umbral, !esHoy, presionHabitual),
     [registros, diaSeleccionado, ajustes.umbral, esHoy, presionHabitual],
@@ -119,18 +126,22 @@ return (
           diasConDatos={new Set(registros.map((r) => r.fecha))}
         />
 
-        {/* Metricas del dia. La orina va primera: es el dato que mas se mira. */}
+        {/* Metricas del dia. La sonda va primera: es el dato que mas se mira. */}
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
           <TarjetaMetrica
             principal
-            etiqueta="Orina total"
-            valor={String(resumen.totalOrina)}
+            etiqueta="Sonda total"
+            valor={String(resumenSonda.totalVolumen)}
             unidad="ml"
             icono={<IconoGota width={16} height={16} />}
-            // El volumen bajo solo es preocupaante cuando el dia ya ha
-            // terminado; a media manana es normal no haber orinado aun.
-            nivel={resumen.totalOrina > ajustes.umbral.orinaMax ? 'aviso' : 'ok'}
-            detalle={`Objetivo ${ajustes.umbral.orinaMin}-${ajustes.umbral.orinaMax} ml`}
+            // El volumen alto exige atencion; a media manana es normal no haber
+            // vaciado aun, por eso el volumen bajo no se marca en el dia en curso.
+            nivel={resumenSonda.totalVolumen > ajustes.umbral.sondaMax ? 'aviso' : 'ok'}
+            detalle={
+              resumenSonda.vaciados === 0
+                ? 'Sin vaciados'
+                : `${resumenSonda.vaciados} ${resumenSonda.vaciados === 1 ? 'vaciado' : 'vaciados'}`
+            }
           />
           <TarjetaMetrica
             etiqueta="Presion media"
@@ -169,6 +180,9 @@ evaluarSis(resumen.promedioPresionSis, ajustes.umbral, presionHabitual),
 
       {/* Mini formulario: permite registrar sin salir de Inicio */}
       <FormularioRapido />
+
+      {/* Vaciado de la sonda: entidad aparte, se anota cuando toca */}
+      <FormularioSonda />
 
       {/* Ultimas 24 horas */}
       <Tarjeta className="space-y-3">

@@ -9,7 +9,7 @@
  * Los datos de salud nunca salen del dispositivo: no hay backend ni Analytic.
  */
 
-import type { Ajustes, Ambito, Borrado, MarcasCompartidas, Paciente, Registro, Visita } from './tipos'
+import type { Ajustes, Ambito, Borrado, MarcasCompartidas, Paciente, Registro, Sonda, Visita } from './tipos'
 import { AJUSTES_POR_DEFECTO } from './rangos'
 import { claveDia } from './fechas'
 import { fusionarBorrados as fusionarBorradosLocales } from './fusion'
@@ -18,17 +18,22 @@ const DB_NOMBRE = 'signos-vitales'
 // v2: se anade el store de visitas.
 // v3: se anade el store de borrados, que guarda las marcas de lo que se borro
 // en cualquier dispositivo para que el borrado tambien viaje al sincronizar.
-// La v1 no tenia el de visitas ni el de borrados; `onupgradeneeded` crea los
+// v4: se anade el store de sondas, que guarda los vaciados de la bolsa. Es un
+// store propio y no un campo de registros porque la sonda se vacia cuando toca,
+// no cuando se mide la tension.
+// Las versiones anteriores no tenian estos stores; `onupgradeneeded` crea los
 // stores nuevos sin tocar los existentes, de modo que los datos ya guardados
 // sobreviven a la actualizacion.
-const DB_VERSION = 3
+const DB_VERSION = 4
 const STORE_REGISTROS = 'registros'
 const STORE_VISITAS = 'visitas'
+const STORE_SONDAS = 'sondas'
 const STORE_BORRADOS = 'borrados'
 const STORE_CLAVE = 'clave-valor'
 
 const LS_REGISTROS = 'msv:registros'
 const LS_VISITAS = 'msv:visitas'
+const LS_SONDAS = 'msv:sondas'
 const LS_AJUSTES = 'msv:ajustes'
 const LS_PACIENTES = 'msv:pacientes'
 const LS_BORRADOS = 'msv:borrados'
@@ -85,6 +90,11 @@ function abrirDB(): Promise<IDBDatabase | null> {
         }
         if (!db.objectStoreNames.contains(STORE_VISITAS)) {
           const store = db.createObjectStore(STORE_VISITAS, { keyPath: 'id' })
+          store.createIndex('fecha', 'fecha')
+          store.createIndex('createdAt', 'createdAt')
+        }
+        if (!db.objectStoreNames.contains(STORE_SONDAS)) {
+          const store = db.createObjectStore(STORE_SONDAS, { keyPath: 'id' })
           store.createIndex('fecha', 'fecha')
           store.createIndex('createdAt', 'createdAt')
         }
@@ -194,6 +204,41 @@ export async function cargarVisitas(): Promise<Visita[]> {
 export async function guardarVisitas(visitas: Visita[]): Promise<void> {
   escribir(LS_VISITAS, visitas)
   await guardarLista(STORE_VISITAS, visitas)
+}
+
+// ---------------------------------------------------------------------------
+// Sondas
+// ---------------------------------------------------------------------------
+
+/** Carga las sondas, de IndexedDB o del espejo en localStorage. */
+export async function cargarSondas(): Promise<Sonda[]> {
+  const db = await abrirDB()
+  if (db) {
+    try {
+      const sondas = await transaccion<Sonda[]>(db, STORE_SONDAS, 'readonly', (s) => s.getAll())
+      const espejo = leer<Sonda[]>(LS_SONDAS)
+      if (espejo && espejo.length > sondas.length) {
+        void guardarSondas(espejo)
+        return ordenarSondas(espejo)
+      }
+      return ordenarSondas(sondas)
+    } catch {
+      // Si IndexedDB falla a mitad, usamos el espejo.
+    }
+  }
+  return ordenarSondas(leer<Sonda[]>(LS_SONDAS) ?? [])
+}
+
+export async function guardarSondas(sondas: Sonda[]): Promise<void> {
+  escribir(LS_SONDAS, sondas)
+  await guardarLista(STORE_SONDAS, sondas)
+}
+
+/** Ordena por fecha y hora descendentes: el ultimo vaciado primero. */
+export function ordenarSondas(sondas: Sonda[]): Sonda[] {
+  return [...sondas].sort((a, b) =>
+    a.fecha === b.fecha ? b.hora.localeCompare(a.hora) : b.fecha.localeCompare(a.fecha),
+  )
 }
 
 /**
@@ -404,8 +449,7 @@ export function esDuplicado(nuevo: Registro, existentes: Registro[]): boolean {
       r.presionSis === nuevo.presionSis &&
       r.presionDia === nuevo.presionDia &&
       r.o2 === nuevo.o2 &&
-      r.bpm === nuevo.bpm &&
-      r.orina === nuevo.orina,
+      r.bpm === nuevo.bpm,
   )
 }
 

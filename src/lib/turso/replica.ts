@@ -30,6 +30,7 @@ import type {
   MarcasCompartidas,
   Paciente,
   Registro,
+  Sonda,
   Visita,
 } from '../tipos'
 import { conexion, type Base } from './cliente'
@@ -40,15 +41,17 @@ import {
   filaABorrado,
   filaAPaciente,
   filaARegistro,
+  filaASonda,
   filaAVisita,
   leerReparto,
   pacienteACrear,
   registroAFila,
   repartir,
+  sondaAFila,
   visitaAFila,
   type Reparto,
 } from './mapeo'
-import { ajustes, borrados, pacientes, registros, replica, visitas } from './schema'
+import { ajustes, borrados, pacientes, registros, replica, sondas, visitas } from './schema'
 
 /**
  * Que tiene este dispositivo ahora mismo.
@@ -60,6 +63,7 @@ import { ajustes, borrados, pacientes, registros, replica, visitas } from './sch
 export interface EstadoReplicable {
   registros: Registro[]
   visitas: Visita[]
+  sondas: Sonda[]
   pacientes: Paciente[]
   borrados: Borrado[]
   ajustes: AjustesCompartidos
@@ -102,9 +106,10 @@ export interface ResultadoReplica {
  * comparado con perder un cambio.
  */
 async function leerRemoto(db: Base) {
-  const [filasR, filasV, filasP, filasB, filaAjustes] = await Promise.all([
+  const [filasR, filasV, filasS, filasP, filasB, filaAjustes] = await Promise.all([
     db.select().from(registros),
     db.select().from(visitas),
+    db.select().from(sondas),
     db.select().from(pacientes),
     db.select().from(borrados),
     db.select().from(ajustes).limit(1),
@@ -114,12 +119,13 @@ async function leerRemoto(db: Base) {
   return {
     registros: filasR.map(filaARegistro),
     visitas: filasV.map(filaAVisita),
+    sondas: filasS.map(filaASonda),
     pacientes: filasP.map(filaAPaciente),
     borrados: filasB.map(filaABorrado),
     ajustes: leidos.ajustes,
     marcas: leidos.marcas,
     /** El reparto actual, que hace falta antes de decidir los pacientes. */
-    reparto: leerReparto(filasR, filasV),
+    reparto: leerReparto(filasR, filasV, filasS),
   }
 }
 
@@ -169,11 +175,11 @@ function excluido(columna: { name: string }): SQL {
 
 /** Si hay filas que atribuir, tiene que haber alguna ficha a la que atribuirlas. */
 function destinoValido(
-  filas: { registros: Registro[]; visitas: Visita[] },
+  filas: { registros: Registro[]; visitas: Visita[]; sondas: Sonda[] },
   destino: string,
 ): void {
   if (destino) return
-  if (filas.registros.length === 0 && filas.visitas.length === 0) return
+  if (filas.registros.length === 0 && filas.visitas.length === 0 && filas.sondas.length === 0) return
   // No se devuelve en silencio. Saltarse estas filas seria la forma mas facil de
   // perder datos sin enterarse: la app las seguiria mostrando, creeria que estan
   // guardadas, y no estarian en ningun sitio mas que en el telefono.
@@ -184,7 +190,7 @@ function destinoValido(
 
 /** Ids a borrar de cada tabla, segun los tombstones del paquete. */
 function borradosPorTabla(borrados: Borrado[]): Record<Ambito, string[]> {
-  const salida: Record<Ambito, string[]> = { registros: [], visitas: [], pacientes: [] }
+  const salida: Record<Ambito, string[]> = { registros: [], visitas: [], pacientes: [], sondas: [] }
   for (const b of borrados) salida[b.ambito].push(b.id)
   return salida
 }
@@ -210,9 +216,10 @@ function pacientesBorrados(borrados: Borrado[]): Set<string> {
 function purgarConPaciente(
   registros: Registro[],
   visitas: Visita[],
+  sondas: Sonda[],
   reparto: Reparto,
   muertos: Set<string>,
-): { registros: Registro[]; visitas: Visita[] } {
+): { registros: Registro[]; visitas: Visita[]; sondas: Sonda[] } {
   const sinDueno = (id: string, mapa: Map<string, string>) => {
     const dueno = mapa.get(id)
     return dueno !== undefined && muertos.has(dueno)
@@ -220,6 +227,7 @@ function purgarConPaciente(
   return {
     registros: registros.filter((r) => !sinDueno(r.id, reparto.registros)),
     visitas: visitas.filter((v) => !sinDueno(v.id, reparto.visitas)),
+    sondas: sondas.filter((s) => !sinDueno(s.id, reparto.sondas)),
   }
 }
 
@@ -238,12 +246,14 @@ async function escribir(db: Base, paquete: Backup, reparto: Reparto) {
   // porque un fichero de una version antigua no los trae. `construirBackup` si los
   // pone siempre, pero aqui no se asume eso: se rellenan y punto.
   const lasVisitas = paquete.visitas ?? []
+  const lasSondas = paquete.sondas ?? []
   const validos = new Set(paquete.pacientes.map((p) => p.id))
   const destino = paquete.pacientes[0]?.id ?? ''
-  destinoValido({ registros: paquete.registros, visitas: lasVisitas }, destino)
+  destinoValido({ registros: paquete.registros, visitas: lasVisitas, sondas: lasSondas }, destino)
 
   const r = repartir(paquete.registros, reparto.registros, validos, destino)
   const v = repartir(lasVisitas, reparto.visitas, validos, destino)
+  const s = repartir(lasSondas, reparto.sondas, validos, destino)
 
   if (paquete.pacientes.length > 0) {
     const filas = paquete.pacientes.map((p) => ({
@@ -289,6 +299,18 @@ async function escribir(db: Base, paquete: Backup, reparto: Reparto) {
       })
   }
 
+  if (lasSondas.length > 0) {
+    const filas = lasSondas.map((x) => sondaAFila(x, s.asignados.get(x.id) ?? destino))
+    await db
+      .insert(sondas)
+      .values(filas)
+      .onConflictDoUpdate({
+        target: sondas.id,
+        set: columnasParaActualizar(sondas, 'id'),
+        where: sql`${excluido(sondas.updatedAt)} > ${sondas.updatedAt}`,
+      })
+  }
+
   if (paquete.borrados && paquete.borrados.length > 0) {
     // Los tombstones se escriben Y se borra la fila. Solo con escribir el
     // tombstone no bastaria: los otros dispositivos aprenderian que algo se borro,
@@ -304,6 +326,9 @@ async function escribir(db: Base, paquete: Backup, reparto: Reparto) {
     }
     if (porTabla.visitas.length > 0) {
       await db.delete(visitas).where(inArray(visitas.id, porTabla.visitas))
+    }
+    if (porTabla.sondas.length > 0) {
+      await db.delete(sondas).where(inArray(sondas.id, porTabla.sondas))
     }
     if (porTabla.pacientes.length > 0) {
       await db.delete(pacientes).where(inArray(pacientes.id, porTabla.pacientes))
@@ -331,7 +356,7 @@ async function escribir(db: Base, paquete: Backup, reparto: Reparto) {
       })
   }
 
-  return r.movidos + v.movidos
+  return r.movidos + v.movidos + s.movidos
 }
 
 /** ISO del reloj local. */
@@ -378,7 +403,7 @@ export async function sincronizar(
   // los registros puedan atribuirse a ella. Si se crees despues, el primer ciclo
   // subiria mediciones apuntando a una ficha que todavia no existe, y la base los
   // rechazaria por la clave foranea.
-  const filasQueAtribuir = local.registros.length + local.visitas.length
+  const filasQueAtribuir = local.registros.length + local.visitas.length + local.sondas.length
   const nuevo = pacienteACrear(local.pacienteActivo, vivos, filasQueAtribuir)
   const pacientesLocales = nuevo ? [...local.pacientes, nuevo] : local.pacientes
 
@@ -387,6 +412,7 @@ export async function sincronizar(
     {
       registros: local.registros,
       visitas: local.visitas,
+      sondas: local.sondas,
       pacientes: pacientesLocales,
       borrados: local.borrados,
       ajustes: local.ajustes,
@@ -401,6 +427,7 @@ export async function sincronizar(
   const repisable = purgarConPaciente(
     paquete.registros,
     paquete.visitas ?? [],
+    paquete.sondas ?? [],
     remoto.reparto,
     muertos,
   )

@@ -15,7 +15,6 @@
  *   Presion: 120/80
  *   O2: 100%
  *   Pulso: 90
- *   Orina: 200 ml
  *
  * Se elige un dato por linea, y no todo en una linea separada por guiones,
  * porque asi el texto pegado en un chat se lee sintables y porque se puede
@@ -35,7 +34,6 @@ const CAMPOS: { etiqueta: string; valor: (r: Registro) => string }[] = [
   { etiqueta: 'Presion', valor: (r) => `${r.presionSis}/${r.presionDia}` },
   { etiqueta: 'O2', valor: (r) => `${r.o2}%` },
   { etiqueta: 'Pulso', valor: (r) => `${r.bpm}` },
-  { etiqueta: 'Orina', valor: (r) => (r.orina === null ? '-' : `${r.orina} ml`) },
 ]
 
 /**

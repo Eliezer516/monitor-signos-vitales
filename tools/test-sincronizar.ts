@@ -25,6 +25,7 @@ import type {
   MarcasCompartidas,
   Paciente,
   Registro,
+  Sonda,
   Visita,
 } from '../src/lib/tipos'
 import { AJUSTES_POR_DEFECTO } from '../src/lib/rangos'
@@ -60,7 +61,6 @@ function reg(id: string, updatedAt: string, presionSis = 120): Registro {
     presionDia: 80,
     o2: 97,
     bpm: 70,
-    orina: null,
     notas: '',
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt,
@@ -70,6 +70,7 @@ function reg(id: string, updatedAt: string, presionSis = 120): Registro {
 const local: EstadoLocal = {
   registros: [reg('a', '2026-10-01T09:00:00Z', 120)],
   visitas: [] as Visita[],
+  sondas: [] as Sonda[],
   pacientes: [] as Paciente[],
   borrados: [] as Borrado[],
   ajustes,
@@ -189,6 +190,7 @@ console.log('6. Fusionar dos veces no inventa nada')
   const estado: EstadoLocal = {
     registros: uno.paquete.registros,
     visitas: uno.paquete.visitas,
+    sondas: uno.paquete.sondas ?? [],
     pacientes: uno.paquete.pacientes,
     borrados: uno.paquete.borrados ?? [],
     ajustes: uno.paquete.ajustes ?? ajustes,

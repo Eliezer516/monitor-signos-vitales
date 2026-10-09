@@ -11,6 +11,7 @@
 import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
 import { useVisitas } from '../context/ContextoVisitas'
+import { useSondas } from '../context/ContextoSondas'
 import { useAjustes } from '../context/ContextoAjustes'
 import { useAvisos } from '../components/Avisos'
 import {
@@ -20,6 +21,7 @@ import {
   rangoTotal,
   resumenDia,
   resumenSemana,
+  resumenSondaDia,
 } from '../lib/resumen'
 import { claveDia, fechaCompleta, fechaCorta, hora12, inicioSemana, sumarDias } from '../lib/fechas'
 import { compartirReporte, imprimirReporte, reporteHTML } from '../lib/exportar'
@@ -49,6 +51,7 @@ const VISTAS: { valor: Vista; etiqueta: string }[] = [
 export function PaginaReportes() {
   const { registros } = useRegistros()
   const { visitas } = useVisitas()
+  const { sondas } = useSondas()
   const { ajustes, paciente, presionHabitual } = useAjustes()
   const { aviso } = useAvisos()
 
@@ -77,10 +80,16 @@ const registrosPeriodo = useMemo(
   )
 
   // Las visitas del mismo periodo se pasan al reporte: el medico necesita ver
-  // tambien lo que se decidio en las consultas de esos dias.
+  // tambien lo que se decidio en las consultas de esos dias. Igual con los
+  // vaciados de la sonda, que van en una seccion propia del informe.
   const visitasPeriodo = useMemo(
     () => visitas.filter((v) => v.fecha >= desde && v.fecha <= hasta),
     [visitas, desde, hasta],
+  )
+
+  const sondasPeriodo = useMemo(
+    () => sondas.filter((s) => s.fecha >= desde && s.fecha <= hasta),
+    [sondas, desde, hasta],
   )
 
 // Se sale solo si no hay nada de nada: tener visitas pero no mediciones tambien
@@ -102,13 +111,14 @@ const generarReporte = () => {
       aviso('No hay datos en este periodo', 'error')
       return
     }
-    const html = reporteHTML(registrosPeriodo, {
+const html = reporteHTML(registrosPeriodo, {
       paciente: paciente ?? undefined,
       desde,
       hasta,
       umbral: ajustes.umbral,
       presionHabitual,
       visitas: visitasPeriodo,
+      sondas: sondasPeriodo,
     })
     if (!imprimirReporte(html)) {
       aviso('El navegador bloqueo la ventana de impresion', 'error')
@@ -129,6 +139,7 @@ const compartir = async () => {
       umbral: ajustes.umbral,
       presionHabitual,
       visitas: visitasPeriodo,
+      sondas: sondasPeriodo,
     })
     const resultado = await compartirReporte(html, `reporte-${desde}-${hasta}`)
     if (resultado === 'no-soportado') {
@@ -319,6 +330,7 @@ function ReporteDiario({
 function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
   const { registros } = useRegistros()
   const { visitas } = useVisitas()
+  const { sondas } = useSondas()
   const dias = useMemo(() => resumenSemana(registros, dia), [registros, dia])
   const diasConDatos = dias.filter((d) => d.registros.length > 0)
 
@@ -328,8 +340,13 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
     [visitas, lunes],
   )
 
-  const totalOrina = dias.reduce((a, d) => a + d.totalOrina, 0)
-  const mediaDiaria = diasConDatos.length ? Math.round(totalOrina / diasConDatos.length) : 0
+  const sondasSemana = useMemo(
+    () => sondas.filter((s) => s.fecha >= lunes && s.fecha <= sumarDias(lunes, 6)),
+    [sondas, lunes],
+  )
+  const totalSonda = sondasSemana.reduce((a, s) => a + s.volumen, 0)
+  const diasConVaciados = new Set(sondasSemana.map((s) => s.fecha)).size
+  const mediaDiaria = diasConVaciados ? Math.round(totalSonda / diasConVaciados) : 0
   const minO2 = diasConDatos.length ? Math.min(...diasConDatos.map((d) => d.minO2 ?? 100)) : null
 
   const meds = useMemo(
@@ -349,8 +366,8 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Metrica etiqueta="Orina total" valor={String(totalOrina)} unidad="ml" />
+<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Metrica etiqueta="Sonda total" valor={String(totalSonda)} unidad="ml" />
           <Metrica etiqueta="Dias con datos" valor={String(diasConDatos.length)} unidad="de 7" />
           <Metrica etiqueta="Media diaria" valor={mediaDiaria ? String(mediaDiaria) : '-'} unidad="ml/dia" />
           <Metrica etiqueta="O2 mas bajo" valor={n(minO2)} unidad="%" />
@@ -363,9 +380,9 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
           <table className="w-full min-w-[34rem] text-sm">
             <thead>
               <tr className="border-b border-borde text-left text-xs text-texto-suave">
-                <th className="py-2 pr-2 font-medium">Dia</th>
+<th className="py-2 pr-2 font-medium">Dia</th>
                 <th className="py-2 pr-2 font-medium">Tomas</th>
-                <th className="py-2 pr-2 font-medium">Orina</th>
+                <th className="py-2 pr-2 font-medium">Sonda</th>
                 <th className="py-2 pr-2 font-medium">Presion</th>
                 <th className="py-2 pr-2 font-medium">O2</th>
                 <th className="py-2 pr-2 font-medium">Pulso</th>
@@ -381,9 +398,14 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
                   )}
                 >
                   <td className="py-2.5 pr-2 font-medium">{fechaCorta(d.fecha).slice(0, 6)}</td>
-                  <td className="py-2.5 pr-2 tabular-nums">{d.registros.length || '-'}</td>
+<td className="py-2.5 pr-2 tabular-nums">
+                    {d.registros.length || '-'}
+                  </td>
                   <td className="py-2.5 pr-2 tabular-nums">
-                    {d.totalOrina ? `${d.totalOrina} ml` : '-'}
+                    {(() => {
+                      const t = resumenSondaDia(sondas, d.fecha).totalVolumen
+                      return t > 0 ? `${t} ml` : '-'
+                    })()}
                   </td>
                   <td className="py-2.5 pr-2 tabular-nums">
                     {d.promedioPresionSis === null
@@ -457,14 +479,14 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
         )}
       </Tarjeta>
 
-      {mediaDiaria > 0 && mediaDiaria < umbral.orinaMin && (
+{mediaDiaria > 0 && mediaDiaria < umbral.sondaMin && (
         <Tarjeta className="flex items-start gap-2.5 border-aviso/30 bg-aviso-suave">
           <span className="shrink-0 text-aviso">
             <IconoAlerta width={20} height={20} />
           </span>
           <p className="text-sm text-aviso">
-            La media diaria de orina ({mediaDiaria} ml) esta por debajo del minimo configurado (
-            {umbral.orinaMin} ml).
+            La media drenada por la sonda ({mediaDiaria} ml) esta por debajo del minimo configurado (
+            {umbral.sondaMin} ml).
           </p>
         </Tarjeta>
       )}
@@ -497,13 +519,7 @@ function ReporteComparativo({ periodo, umbral }: { periodo: Periodo; umbral: Umb
           </p>
         </div>
 
-        <div className="space-y-2.5">
-          <FilaComparativa
-            etiqueta="Orina total"
-            actual={`${actual.totalOrina} ml`}
-            anterior={`${anterior.totalOrina} ml`}
-            cambio={cambios.totalOrina}
-          />
+<div className="space-y-2.5">
           <FilaComparativa
             etiqueta="Presion sistolica media"
             actual={`${n(actual.promedioPresionSis)} mmHg`}
@@ -601,10 +617,9 @@ function TablaComparativaSemanal({ umbral }: { umbral: Umbrales }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[28rem] text-sm">
-        <thead>
+<thead>
           <tr className="border-b border-borde text-left text-xs text-texto-suave">
             <th className="py-2 pr-2 font-medium">Dia</th>
-            <th className="py-2 pr-2 font-medium">Orina act/ant</th>
             <th className="py-2 pr-2 font-medium">Presion act/ant</th>
             <th className="py-2 pr-2 font-medium">O2 min</th>
           </tr>
@@ -613,12 +628,6 @@ function TablaComparativaSemanal({ umbral }: { umbral: Umbrales }) {
           {filas.map((f) => (
             <tr key={f.fecha} className="border-b border-borde/60 last:border-0">
               <td className="py-2.5 pr-2 font-medium">{fechaCorta(f.fecha).slice(0, 6)}</td>
-              <td className="py-2.5 pr-2 tabular-nums">
-                <span className={f.actual.totalOrina === 0 ? 'text-texto-suave' : 'font-medium'}>
-                  {f.actual.totalOrina}
-                </span>
-                <span className="text-texto-suave"> / {f.anterior.totalOrina}</span>
-              </td>
               <td className="py-2.5 pr-2 tabular-nums">
                 {f.actual.promedioPresionSis === null ? (
                   <span className="text-texto-suave">-</span>

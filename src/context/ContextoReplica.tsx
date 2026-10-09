@@ -4,11 +4,12 @@
  *   Se guarda en el telefono -> se sube a la base -> lo que llega de fuera se
  *   fusiona en pantalla.
  *
- * Va por debajo de `ProveedorRegistros`, `ProveedorVisitas` y `ProveedorAjustes`
- * porque necesita leer los tres para saber que hay que subir. Al fusionar lo que
- * llega llama a las mismas funciones de fusion que usa "Restaurar", y no a una via
- * propia: si la copia manual y la automatica tuvieran reglas distintas,
- * restauraria una cosa y sincronizando otra, y eso no se podria reproducir.
+ * Va por debajo de `ProveedorRegistros`, `ProveedorVisitas`, `ProveedorSondas` y
+ * `ProveedorAjustes` porque necesita leer los cuatro para saber que hay que subir.
+ * Al fusionar lo que llega llama a las mismas funciones de fusion que usa
+ * "Restaurar", y no a una via propia: si la copia manual y la automatica tuvieran
+ * reglas distintas, restauraria una cosa y sincronizando otra, y eso no se podria
+ * reproducir.
  *
  * **El bucle infinito es el riesgo de este fichero.**
  *
@@ -37,6 +38,7 @@ import { sincronizar, type EstadoReplicable } from '../lib/turso/replica'
 import type { Borrado, MarcasCompartidas } from '../lib/tipos'
 import { useAjustes } from './ContextoAjustes'
 import { useRegistros } from './ContextoRegistros'
+import { useSondas } from './ContextoSondas'
 import { useVisitas } from './ContextoVisitas'
 
 /** Cuanto se espera antes de subir. */
@@ -128,6 +130,7 @@ const ContextoReplica = createContext<ValorReplica | null>(null)
 function firmaDe(estado: {
   registros: { id: string; updatedAt?: string }[]
   visitas: { id: string; updatedAt?: string }[]
+  sondas: { id: string; updatedAt?: string }[]
   pacientes: { id: string; updatedAt?: string }[]
   borrados: Borrado[]
   marcas: MarcasCompartidas
@@ -136,6 +139,7 @@ function firmaDe(estado: {
   return JSON.stringify({
     registros: estado.registros.map(linea).sort(),
     visitas: estado.visitas.map(linea).sort(),
+    sondas: estado.sondas.map(linea).sort(),
     pacientes: estado.pacientes.map(linea).sort(),
     // Los borrados van ordenados porque los dos lados los acumulan en orden
     // distinto, y que no coincidan no significa que haya cambiado nada.
@@ -148,8 +152,9 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
   const disponible = tursoConfigurado()
 
   const { registros, fusionar, borrados: borradosR, cargando: cargandoR } = useRegistros()
-  const { visitas, fusionar: fusionarVisitas, borrados: borradosV, cargando: cargandoV } =
-    useVisitas()
+  const { visitas, fusionar: fusionarVisitas, borrados: borradosV, cargando: cargandoV } = useVisitas()
+  const { sondas, fusionar: fusionarSondas, borrados: borradosS, cargando: cargandoS } =
+    useSondas()
   const {
     pacientes,
     fusionarPacientes,
@@ -185,8 +190,9 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
     () => ({
       registros,
       visitas,
+      sondas,
       pacientes,
-      borrados: [...borradosR, ...borradosV],
+      borrados: [...borradosR, ...borradosV, ...borradosS],
       ajustes: ajustesCompartidos,
       marcas,
       // El paciente activo es un ajuste de este dispositivo, no algo que se replique.
@@ -194,15 +200,15 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
       // nuevas que aun no estan en la base.
       pacienteActivo: paciente?.id ?? null,
     }),
-    [registros, visitas, pacientes, borradosR, borradosV, ajustesCompartidos, marcas, paciente],
+    [registros, visitas, sondas, pacientes, borradosR, borradosV, borradosS, ajustesCompartidos, marcas, paciente],
   )
 
   const firma = useMemo(() => firmaDe(local), [local])
 
-  // Los tres contextos tienen que haber leido del almacen. Con solo uno cargado, la
+  // Los cuatro contextos tienen que haber leido del almacen. Con solo uno cargado, la
   // subida mandaria una lista vacia por la que no esta vacia de verdad, y la fusion
   // dari por borrado lo que solo estaba sin leer.
-  const cargandoTodo = cargandoR || cargandoV || cargandoA
+  const cargandoTodo = cargandoR || cargandoV || cargandoS || cargandoA
 
   const sincronizarAhora = useCallback(async () => {
     if (!disponible || enCurso.current) return
@@ -232,6 +238,7 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
       await Promise.all([
         fusionar(r.paquete.registros, r.paquete.borrados),
         fusionarVisitas(r.paquete.visitas ?? [], r.paquete.borrados),
+        fusionarSondas(r.paquete.sondas ?? [], r.paquete.borrados),
         fusionarPacientes(r.paquete.pacientes, r.paquete.borrados),
       ])
       if (r.paquete.ajustes) {
@@ -245,6 +252,7 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
       firmaSincronizada.current = firmaDe({
         registros: r.paquete.registros,
         visitas: r.paquete.visitas ?? [],
+        sondas: r.paquete.sondas ?? [],
         pacientes: r.paquete.pacientes,
         borrados: r.paquete.borrados ?? [],
         marcas: r.paquete.marcas ?? {},
@@ -277,6 +285,7 @@ export function ProveedorReplica({ children }: { children: ReactNode }) {
     local,
     fusionar,
     fusionarVisitas,
+    fusionarSondas,
     fusionarPacientes,
     aplicarAjustesRemotos,
   ])

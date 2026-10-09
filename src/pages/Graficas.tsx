@@ -4,7 +4,7 @@
  * Tres graficas cubren las preguntas que se hace el cuidador:
  *  1. ¿Como evoluciona la presion? (sistolica y diastolica, con banda de rango)
  *  2. ¿Como van el oxigeno y el pulso? (ejes independientes)
- *  3. ¿Cuanto ha orinado cada dia? (barras, con linea del minimo diario)
+ *  3. ¿Cuanto se ha drenado por la sonda cada dia? (barras, con linea del minimo)
  *
  * Cuando el periodo es "Dia" se muestran las mediciones individuales de ese dia
  * en lugar del promedio diario: a escala de un dia interesan las tomas
@@ -13,11 +13,19 @@
 
 import { useMemo, useState } from 'react'
 import { useRegistros } from '../context/ContextoRegistros'
+import { useSondas } from '../context/ContextoSondas'
 import { useAjustes } from '../context/ContextoAjustes'
-import { seriePorPeriodo, resumenDia } from '../lib/resumen'
+import { seriePorPeriodo, serieSondaPorPeriodo } from '../lib/resumen'
 import { claveDia, fechaCorta, hora12 } from '../lib/fechas'
 import { COLORES_SERIE } from '../lib/rangos'
-import type { Periodo, PresionHabitual, PuntoSerie, Registro, Umbrales } from '../lib/tipos'
+import type {
+  Periodo,
+  PresionHabitual,
+  PuntoSerie,
+  Registro,
+  Sonda,
+  Umbrales,
+} from '../lib/tipos'
 import { GraficaBarras, GraficaLinea, Leyenda } from '../components/Graficas'
 import { Segmentado, Tarjeta, Vacio } from '../components/UI'
 import { IconoGrafica } from '../components/Iconos'
@@ -31,6 +39,7 @@ const PERIODOS: { valor: Periodo; etiqueta: string }[] = [
 
 export function PaginaGraficas() {
   const { registros } = useRegistros()
+  const { sondas } = useSondas()
   const { ajustes, presionHabitual } = useAjustes()
   const [periodo, setPeriodo] = useState<Periodo>('semana')
   const hoy = useHoy()
@@ -42,9 +51,19 @@ export function PaginaGraficas() {
     [registros, fin],
   )
 
+  const sondasDelDia = useMemo(
+    () => sondas.filter((s) => s.fecha === fin).sort((a, b) => a.hora.localeCompare(b.hora)),
+    [sondas, fin],
+  )
+
   const serie = useMemo(
     () => (periodo === 'dia' ? null : seriePorPeriodo(registros, fin, periodo)),
     [registros, fin, periodo],
+  )
+
+  const serieSonda = useMemo(
+    () => (periodo === 'dia' ? null : serieSondaPorPeriodo(sondas, fin, periodo)),
+    [sondas, fin, periodo],
   )
 
   const moverDia = (delta: number) => {
@@ -93,12 +112,12 @@ export function PaginaGraficas() {
       </Tarjeta>
 
       {periodo === 'dia' ? (
-        <GraficasDelDia registros={registrosDelDia} fecha={fin} />
+        <GraficasDelDia registros={registrosDelDia} sondas={sondasDelDia} />
       ) : (
         <div className="space-y-4">
           <GraficaPresion serie={serie!} umbral={ajustes.umbral} periodo={periodo} habitual={presionHabitual} />
           <GraficaO2Pulso serie={serie!} umbral={ajustes.umbral} />
-          <GraficaOrina serie={serie!} umbral={ajustes.umbral} />
+          <GraficaSonda serie={serieSonda!} umbral={ajustes.umbral} />
         </div>
       )}
     </div>
@@ -242,30 +261,32 @@ function GraficaO2Pulso({
   )
 }
 
-function GraficaOrina({
+function GraficaSonda({
   serie,
   umbral,
 }: {
-  serie: PuntoSerie[]
+  serie: { clave: string; etiqueta: string; totalVolumen: number; vaciados: number }[]
   umbral: Umbrales
 }) {
   return (
     <Tarjeta className="space-y-3">
       <div>
-        <h2 className="text-base font-semibold text-texto">Orina por dia</h2>
-        <p className="text-xs text-texto-suave">Mililitros · objetivo {umbral.orinaMin}-{umbral.orinaMax} ml</p>
+        <h2 className="text-base font-semibold text-texto">Sonda por dia</h2>
+        <p className="text-xs text-texto-suave">
+          Total drenado · objetivo {umbral.sondaMin}-{umbral.sondaMax} ml
+        </p>
       </div>
       <GraficaBarras
         barras={serie.map((p) => ({
           clave: p.clave,
           etiqueta: p.etiqueta,
-          valor: p.totalOrina,
+          valor: p.totalVolumen,
         }))}
-        objetivo={umbral.orinaMin}
-        etiquetaObjetivo={`min ${umbral.orinaMin} ml`}
+        objetivo={umbral.sondaMin}
+        etiquetaObjetivo={`min ${umbral.sondaMin} ml`}
         formatoValor={(v) => `${Math.round(v)} ml`}
         alto={210}
-        vacio="Sin.orina registrada en este periodo"
+        vacio="Sin vaciados en este periodo"
       />
       <p className="text-xs text-texto-suave">
         Las barras en ambar indican dias por debajo del minimo diario.
@@ -281,10 +302,10 @@ function GraficaOrina({
 /** En vista de un dia se grafican las tomas individuales, no los promedios. */
 function GraficasDelDia({
   registros,
-  fecha,
+  sondas,
 }: {
   registros: Registro[]
-  fecha: string
+  sondas: Sonda[]
 }) {
   const { ajustes } = useAjustes()
 
@@ -300,7 +321,6 @@ function GraficasDelDia({
   // mas ancho que "08:05": el hueco horizontal del eje es el que decide cuantas
   // se dibujan, asi que se deja que el componente las reparta.
   const etiquetas = registros.map((r) => hora12(r.hora))
-  const resumen = resumenDia(registros, fecha)
 
   return (
     <div className="space-y-4">
@@ -374,21 +394,28 @@ function GraficasDelDia({
 
       <Tarjeta className="space-y-3">
         <div>
-          <h2 className="text-base font-semibold text-texto">Orina acumulada</h2>
+          <h2 className="text-base font-semibold text-texto">Sonda del dia</h2>
           <p className="text-xs text-texto-suave">
-            Total del dia: {resumen.totalOrina} ml
+            Total drenado: {sondas.reduce((a, s) => a + s.volumen, 0)} ml ·{' '}
+            {sondas.length} {sondas.length === 1 ? 'vaciado' : 'vaciados'}
           </p>
         </div>
-<GraficaBarras
-        barras={registros.map((r) => ({
-          clave: r.id,
-          etiqueta: hora12(r.hora),
-          valor: r.orina ?? 0,
-        }))}
-        formatoValor={(v) => `${Math.round(v)} ml`}
-        alto={190}
-        vacio="Sin orina registrada este dia"
-      />
+        {sondas.length === 0 ? (
+          <p className="py-4 text-center text-sm text-texto-suave">
+            Sin vaciados registrados este dia
+          </p>
+        ) : (
+          <GraficaBarras
+            barras={sondas.map((s) => ({
+              clave: s.id,
+              etiqueta: hora12(s.hora),
+              valor: s.volumen,
+            }))}
+            formatoValor={(v) => `${Math.round(v)} ml`}
+            alto={190}
+            vacio="Sin vaciados registrados este dia"
+          />
+        )}
       </Tarjeta>
     </div>
   )

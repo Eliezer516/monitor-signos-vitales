@@ -49,9 +49,6 @@ export function crearRegistrosDemo(base = new Date()): Registro[] {
       const o2 = conEpisodio ? 89 : 97 - Math.abs(ruido) * 0.3
       const bpm = 68 + tendencia * 1.5 + ruido
 
-      // Orina: tres tomas al dia, repartidas.
-      const orina = indice < 3 ? 180 + indice * 90 + (dia % 3) * 120 : null
-
       registros.push({
         id: nuevoId(),
         fecha,
@@ -60,7 +57,6 @@ export function crearRegistrosDemo(base = new Date()): Registro[] {
         presionDia: Math.round(presionDia),
         o2: Math.round(o2),
         bpm: Math.round(bpm),
-        orina,
         notas:
           conEpisodio && indice === 2
             ? 'Se moria suena. Reposo 15 min y se repite la medicion.'

@@ -65,7 +65,6 @@ const reg = (id: string, updatedAt: string, sis = 120): Registro => ({
   presionDia: 80,
   o2: 97,
   bpm: 70,
-  orina: null,
   notas: '',
   ejemplo: false,
   createdAt: '2026-10-01T08:00:00.000Z',
@@ -96,6 +95,7 @@ function dispositivo(parcial: Partial<EstadoReplicable> = {}): EstadoReplicable 
   return {
     registros: [],
     visitas: [],
+    sondas: [],
     pacientes: [],
     borrados: [],
     ajustes,
@@ -117,13 +117,14 @@ const db = drizzle(cliente, { schema })
  * es la que se despliega, y pasaria sin avisar.
  */
 {
-  const sqlTexto = readFileSync(
-    new URL('../drizzle/0000_unique_vermin.sql', import.meta.url),
-    'utf8',
-  )
-  for (const bloque of sqlTexto.split('--> statement-breakpoint')) {
-    const sentencia = bloque.trim()
-    if (sentencia) await cliente.execute(sentencia)
+  // Se aplican las dos migraciones: la base de 0000 y la de la sonda (0001),
+  // que ademas quita la columna `orina` de `registros`.
+  for (const migracion of ['0000_unique_vermin.sql', '0001_handy_silhouette.sql']) {
+    const sqlTexto = readFileSync(new URL(`../drizzle/${migracion}`, import.meta.url), 'utf8')
+    for (const bloque of sqlTexto.split('--> statement-breakpoint')) {
+      const sentencia = bloque.trim()
+      if (sentencia) await cliente.execute(sentencia)
+    }
   }
 }
 
@@ -257,11 +258,13 @@ console.log('4. Un conflicto lo gana el mas nuevo, en todas las columnas')
 console.log('5. Renombrar un paciente cambia el nombre de verdad')
 {
   // El fallo que hace el `set` mal escrito: actualizar solo `updatedAt` deja el
-  // nombre viejo para siempre y no dice nada.
+  // nombre viejo para siempre y no dice nada. La marca va relativa al reloj local
+  // y no fija: la ficha que hay en la base lleva la hora de su creacion, y una
+  // marca de hace dias perderia el `upsert` contra ella sin probar nada.
   const p = await pacienteEnBase()
   await sincronizar(
     dispositivo({
-      pacientes: [{ ...p, nombre: 'Ana Lopez', updatedAt: '2026-10-06T09:00:00.000Z' }],
+      pacientes: [{ ...p, nombre: 'Ana Lopez', updatedAt: new Date().toISOString() }],
       pacienteActivo: p.id,
     }),
     db,
@@ -337,7 +340,7 @@ console.log('9. La atribucion de pacientes es estable')
   // todas las mediciones ya subidas, y dos personas acabarian mezcladas. Aqui se
   // comprueba que no.
   type FilaR = Parameters<typeof leerReparto>[0][number]
-  const reparto = leerReparto([{ id: 'r1', pacienteId: 'pA' } as FilaR], [])
+  const reparto = leerReparto([{ id: 'r1', pacienteId: 'pA' } as FilaR], [], [])
 
   const estable = repartir([{ id: 'r1' }, { id: 'r2' }], reparto.registros, new Set(['pA', 'pB']), 'pB')
   ok('una fila ya atribuida se queda', estable.asignados.get('r1') === 'pA', String(estable.asignados.get('r1')))

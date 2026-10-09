@@ -40,7 +40,6 @@ function reg(id: string, updatedAt: string | undefined, extra: Partial<Registro>
     presionDia: 80,
     o2: 97,
     bpm: 70,
-    orina: null,
     notas: '',
     createdAt: '2026-10-01T08:00:00.000Z',
   }
@@ -183,8 +182,8 @@ console.log('9. Idempotencia y simetria')
 console.log('10. Ajustes compartidos, campo a campo')
 {
   const base: AjustesCompartidos = {
-    umbral: { presionSisMin: 90, presionSisMax: 130, presionDiaMin: 50, presionDiaMax: 85, o2Min: 92, bpmMin: 50, bpmMax: 100, orinaMin: 0, orinaMax: 2000 },
-    limites: { presionSisMin: 50, presionSisMax: 250, presionDiaMin: 30, presionDiaMax: 150, o2Min: 70, o2Max: 100, bpmMin: 30, bpmMax: 220, orinaMin: 0, orinaMax: 3000 },
+    umbral: { presionSisMin: 90, presionSisMax: 130, presionDiaMin: 50, presionDiaMax: 85, o2Min: 92, bpmMin: 50, bpmMax: 100, sondaMin: 0, sondaMax: 2000 },
+    limites: { presionSisMin: 50, presionSisMax: 250, presionDiaMin: 30, presionDiaMax: 150, o2Min: 70, o2Max: 100, bpmMin: 30, bpmMax: 220, sondaMin: 0, sondaMax: 3000 },
     presionHabitual: { sis: 125, dia: 78 },
     plantillas: [{ id: 'p1', texto: 'Tras la cena', activa: true }],
   }

@@ -26,8 +26,8 @@ export const LIMITES_POR_DEFECTO: Limites = {
   o2Max: 102,
   bpmMin: 40,
   bpmMax: 180,
-  orinaMin: 0,
-  orinaMax: 3000,
+  sondaMin: 0,
+  sondaMax: 3000,
 }
 
 /**
@@ -43,8 +43,8 @@ export const UMBRALES_POR_DEFECTO: Umbrales = {
   o2Max: 100,
   bpmMin: 50,
   bpmMax: 120,
-  orinaMin: 500,
-  orinaMax: 2500,
+  sondaMin: 0,
+  sondaMax: 3000,
 }
 
 /**
@@ -210,12 +210,11 @@ export const ESTILO_NIVEL: Record<Nivel, { clase: string; punto: string; texto: 
  * A diferencia de `Registro`, aqui los campos numericos pueden venir vacios
  * (`null`), que es el estado normal mientras el cuidador escribe.
  */
-export type Borrador = Omit<Partial<Registro>, 'presionSis' | 'presionDia' | 'o2' | 'bpm' | 'orina'> & {
+export type Borrador = Omit<Partial<Registro>, 'presionSis' | 'presionDia' | 'o2' | 'bpm'> & {
   presionSis: number | null
   presionDia: number | null
   o2: number | null
   bpm: number | null
-  orina: number | null
 }
 
 /**
@@ -251,7 +250,6 @@ export function validarRegistro(
   rango('presionDia', 'Presion diastolica', datos.presionDia, limites.presionDiaMin, limites.presionDiaMax, 'mmHg')
   rango('o2', 'Oxigeno', datos.o2, limites.o2Min, limites.o2Max, '%')
   rango('bpm', 'Pulso', datos.bpm, limites.bpmMin, limites.bpmMax, 'lpm')
-  rango('orina', 'Orina', datos.orina, limites.orinaMin, limites.orinaMax, 'ml')
 
   if (!datos.fecha) errores.fecha = 'Indica la fecha'
   if (!datos.hora) errores.hora = 'Indica la hora'
@@ -265,7 +263,7 @@ export const COLORES_SERIE = {
   dia: '#2563eb',
   o2: '#0891b2',
   bpm: '#db2777',
-  orina: '#7c3aed',
+  sonda: '#7c3aed',
   referencia: '#94a3b8',
 } as const
 
@@ -287,7 +285,6 @@ export const AJUSTES_POR_DEFECTO: Ajustes = {
     inicioSilencio: 1320,
     finSilencio: 420,
     notificar: false,
-    avisarOrinaBaja: true,
   },
   ultimoBackup: null,
 }
@@ -303,7 +300,6 @@ export const PLANTILLAS_SUGERIDAS = [
   'Antes de nebulizacion',
   'Despues de la comida',
   'Antes de la comida',
-  'Poca orina',
   'Dificultad para respirar',
   'Hinchazon en piernas',
   'Cansancio',

@@ -432,15 +432,15 @@ function SeccionUmbrales() {
     { clave: 'o2Max', etiqueta: 'Oxigeno maximo', unidad: '%' },
     { clave: 'bpmMin', etiqueta: 'Pulso minimo', unidad: 'lpm' },
     { clave: 'bpmMax', etiqueta: 'Pulso maximo', unidad: 'lpm' },
-    { clave: 'orinaMin', etiqueta: 'Orina minima diaria', unidad: 'ml', paso: 100 },
-    { clave: 'orinaMax', etiqueta: 'Orina maxima diaria', unidad: 'ml', paso: 100 },
+    { clave: 'sondaMin', etiqueta: 'Volumen minimo de sonda', unidad: 'ml', paso: 100 },
+    { clave: 'sondaMax', etiqueta: 'Volumen maximo de sonda', unidad: 'ml', paso: 100 },
   ]
 
   const incoherente =
     ajustes.umbral.presionSisMin >= ajustes.umbral.presionSisMax ||
     ajustes.umbral.presionDiaMin >= ajustes.umbral.presionDiaMax ||
     ajustes.umbral.bpmMin >= ajustes.umbral.bpmMax ||
-    ajustes.umbral.orinaMin >= ajustes.umbral.orinaMax
+    ajustes.umbral.sondaMin >= ajustes.umbral.sondaMax
 
   return (
     <div className="space-y-4">

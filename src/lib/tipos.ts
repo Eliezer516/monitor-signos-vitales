@@ -35,7 +35,7 @@ export interface Sincronizable {
 }
 
 /** Ambito de datos al que pertenece un borrado. */
-export type Ambito = 'registros' | 'visitas' | 'pacientes'
+export type Ambito = 'registros' | 'visitas' | 'pacientes' | 'sondas'
 
 /**
  * Marca de que algo se borro, para que el borrado tambien viaje a los demas
@@ -67,12 +67,46 @@ export interface Registro extends Sincronizable {
   o2: number
   /** Frecuencia cardiaca en latidos por minuto. */
   bpm: number
-  /** Volumen de orina en ml. `null` cuando no se midio en esa toma. */
-  orina: number | null
   /** Notas libres: medicamentos, actividades, sintomas. */
   notas: string
   /** Marca los registros cargados desde los datos de ejemplo. */
   ejemplo?: boolean
+}
+
+/**
+ * Vaciado de la bolsa de la sonda.
+ *
+ * Es una entidad propia y no un campo del registro de signos vitales, y esa
+ * separacion es la que pide el caso de uso: la sonda se vacia cuando toca, no
+ * cuando se mide la tension, y mezclarlas obligaria a elegir entre dejar la
+ * medicion a medias o inventarse un volumen de orina.
+ *
+ * Lo que se anota es el volumen que habia en la bolsa en ese momento. Sumando
+ * los vaciados de un dia se obtiene el total drenado, que es el dato que le
+ * interesa al medico, pero sin perder el detalle de cuantas veces y cuando se
+ * vacio, que es lo que permite ver si la sonda se esta obstruyendo.
+ */
+export interface Sonda extends Sincronizable {
+  /** Dia local del vaciado. */
+  fecha: FechaISO
+  /** Hora local del vaciado, "HH:MM". */
+  hora: Hora
+  /** Volumen que habia en la bolsa, en ml. */
+  volumen: number
+  /** Notas libres: color, aspecto, si costaba vaciar. */
+  notas: string
+  /** Marca las sondas cargadas desde los datos de ejemplo. */
+  ejemplo?: boolean
+}
+
+/** Resumen agregado de los vaciados de un dia. */
+export interface SondaDia {
+  fecha: FechaISO
+  /** Total drenado ese dia, en ml. */
+  totalVolumen: number
+  /** Cuantas veces se vacio. */
+  vaciados: number
+  sondas: Sonda[]
 }
 
 /** Nivel de severidad de un valor o de un conjunto de valores. */
@@ -81,7 +115,6 @@ export type Nivel = 'ok' | 'aviso' | 'alerta'
 /** Resumen agregado de un dia. */
 export interface ResumenDia {
   fecha: FechaISO
-  totalOrina: number
   promedioPresionSis: number | null
   promedioPresionDia: number | null
   minO2: number | null
@@ -105,7 +138,6 @@ export interface PuntoSerie {
   minO2: number | null
   maxO2: number | null
   promedioBPM: number | null
-  totalOrina: number
   registros: Registro[]
 }
 
@@ -191,8 +223,6 @@ export interface Recordatorio {
   finSilencio: number
   /** Pedir permiso de notificaciones del navegador. */
   notificar: boolean
-  /** Avisar cuando la orina acumulada aun no llega al minimo diario. */
-  avisarOrinaBaja: boolean
 }
 
 /** Umbrales clinicos, editables desde Ajustes. */
@@ -205,9 +235,9 @@ export interface Umbrales {
   o2Max: number
   bpmMin: number
   bpmMax: number
-  /** Volumen diario de orina en ml. */
-  orinaMin: number
-  orinaMax: number
+  /** Volumen admitido en un vaciado de sonda, en ml. */
+  sondaMin: number
+  sondaMax: number
 }
 
 /** Limites de entrada: valores fuera de rango no se pueden guardar. */
@@ -220,8 +250,9 @@ export interface Limites {
   o2Max: number
   bpmMin: number
   bpmMax: number
-  orinaMin: number
-  orinaMax: number
+  /** Volumen admitido en un vaciado de sonda, en ml. */
+  sondaMin: number
+  sondaMax: number
 }
 
 /** Ajustes persistentes de la app. */

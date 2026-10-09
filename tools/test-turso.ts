@@ -60,7 +60,6 @@ const reg = (
   presionDia: 80,
   o2: 97,
   bpm: 70,
-  orina: null,
   notas: '',
   ejemplo: false,
   createdAt: '2026-10-01T08:00:00.000Z',
@@ -69,24 +68,23 @@ const reg = (
 
 console.log('1. La migracion aplica sobre una base vacia')
 {
-  const sqlTexto = readFileSync(
-    new URL('../drizzle/0000_unique_vermin.sql', import.meta.url),
-    'utf8',
-  )
-  try {
-    aplicarMigracion(sqlTexto)
-    ok('se aplica sin error', true)
-  } catch (e) {
-    ok('se aplica sin error', false, String(e))
+  for (const migracion of ['0000_unique_vermin.sql', '0001_handy_silhouette.sql']) {
+    const sqlTexto = readFileSync(new URL(`../drizzle/${migracion}`, import.meta.url), 'utf8')
+    try {
+      aplicarMigracion(sqlTexto)
+      ok(`se aplica ${migracion} sin error`, true)
+    } catch (e) {
+      ok(`se aplica ${migracion} sin error`, false, String(e))
+    }
   }
   const t = await cliente.execute(
     `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle%' AND name != '_litestream'`,
   )
   const tablas = (t.rows as { name: string }[]).map((r) => r.name).sort()
-  ok('crea las 6 tablas', tablas.length === 6, tablas.join(','))
+  ok('crea las 7 tablas', tablas.length === 7, tablas.join(','))
   ok(
     'son las esperadas',
-    ['ajustes', 'borrados', 'pacientes', 'registros', 'replica', 'visitas'].every((t) =>
+    ['ajustes', 'borrados', 'pacientes', 'registros', 'replica', 'sondas', 'visitas'].every((t) =>
       tablas.includes(t),
     ),
     tablas.join(','),
@@ -108,10 +106,24 @@ console.log('2. Un paciente y sus registros')
   const leidos = await db.select().from(schema.registros)
   ok('el registro se guarda', leidos.length === 1)
   ok('los numeros no se alteran', leidos[0].presionSis === 120 && leidos[0].o2 === 97)
-  // `orina` es null cuando no se midio: es un dato real ("sin medir"), no un
-  // campo vacio que se pueda confundir con que se olvido.
-  ok('orina null se conserva', leidos[0].orina === null)
   ok('el booleano de ejemplo se lee como booleano', leidos[0].ejemplo === false)
+
+  // La sonda es entidad aparte desde la migracion 0001. Un vaciado se guarda en
+  // su propia tabla y se lee con su volumen.
+  await db.insert(schema.sondas).values({
+    id: 's1',
+    pacienteId: 'p1',
+    fecha: '2026-10-01',
+    hora: '09:30',
+    volumen: 350,
+    notas: '',
+    ejemplo: false,
+    createdAt: '2026-10-01T09:30:00.000Z',
+    updatedAt: '2026-10-01T09:30:00.000Z',
+  })
+  const leidasSondas = await db.select().from(schema.sondas)
+  ok('el vaciado de la sonda se guarda', leidasSondas.length === 1)
+  ok('el volumen se conserva', leidasSondas[0].volumen === 350)
 }
 
 console.log('3. Subir lo mismo dos veces no crea dos filas')

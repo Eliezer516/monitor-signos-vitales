@@ -32,6 +32,8 @@ import type {
   PuntoSerie,
   Registro,
   ResumenDia,
+  Sonda,
+  SondaDia,
   Umbrales,
 } from './tipos'
 
@@ -48,13 +50,9 @@ export const registrosDe = (registros: Registro[], fecha: FechaISO): Registro[] 
 export function resumenDia(registros: Registro[], fecha: FechaISO): ResumenDia {
   const rs = registrosDe(registros, fecha)
   const o2 = rs.map((r) => r.o2).filter((n) => Number.isFinite(n))
-  const orina = rs
-    .map((r) => r.orina)
-    .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
 
   return {
     fecha,
-    totalOrina: orina.reduce((a, b) => a + b, 0),
     promedioPresionSis: promedio(rs.map((r) => r.presionSis)),
     promedioPresionDia: promedio(rs.map((r) => r.presionDia)),
     minO2: o2.length ? Math.min(...o2) : null,
@@ -64,11 +62,23 @@ export function resumenDia(registros: Registro[], fecha: FechaISO): ResumenDia {
   }
 }
 
-/** Nivel global del dia: el peor de sus promedios y del volumen de orina. */
+/** Resumen agregado de los vaciados de un dia. */
+export function resumenSondaDia(sondas: Sonda[], fecha: FechaISO): SondaDia {
+  const delDia = sondas
+    .filter((s) => s.fecha === fecha)
+    .sort((a, b) => a.hora.localeCompare(b.hora))
+  return {
+    fecha,
+    totalVolumen: delDia.reduce((a, s) => a + s.volumen, 0),
+    vaciados: delDia.length,
+    sondas: delDia,
+  }
+}
+
+/** Nivel global del dia: el peor de sus promedios. */
 export function nivelDia(
   resumen: ResumenDia,
   u: Umbrales,
-  diaCompleto = false,
   habitual: PresionHabitual = PRESION_HABITUAL_POR_DEFECTO,
 ): Nivel {
   const niveles: Nivel[] = []
@@ -78,14 +88,6 @@ export function nivelDia(
   }
   if (resumen.minO2 !== null) niveles.push(evaluarO2(resumen.minO2, u))
   if (resumen.promedioBPM !== null) niveles.push(evaluarBpm(resumen.promedioBPM, u))
-  // El volumen de orina solo se juzga al cierre del dia: a las 10 de la manana
-  // un volumen bajo es normal, no una alerta.
-  if (diaCompleto || resumen.registros.length > 0) {
-    if (resumen.registros.length > 0 && resumen.totalOrina > 0 && resumen.totalOrina < u.orinaMin) {
-      niveles.push('aviso')
-    }
-    if (resumen.totalOrina > u.orinaMax) niveles.push('aviso')
-  }
   if (niveles.includes('alerta')) return 'alerta'
   if (niveles.includes('aviso')) return 'aviso'
   return 'ok'
@@ -127,8 +129,35 @@ export function seriePorPeriodo(
       minO2: o2.length ? Math.min(...o2) : null,
       maxO2: o2.length ? Math.max(...o2) : null,
       promedioBPM: promedio(rs.map((r) => r.bpm)),
-      totalOrina: resumen.totalOrina,
       registros: rs,
+    })
+  }
+  return puntos
+}
+
+/**
+ * Serie temporal de sondas: un punto por dia con el total drenado.
+ *
+ * Mismo criterio que `seriePorPeriodo`: los dias sin vaciados van con `0` para
+ * que el eje X mantenga la escala temporal real y la grafica no "salte" dias.
+ */
+export function serieSondaPorPeriodo(
+  sondas: Sonda[],
+  fin: FechaISO,
+  periodo: Periodo,
+): { clave: FechaISO; etiqueta: string; totalVolumen: number; vaciados: number }[] {
+  const { desde, hasta } = rangoPeriodo(fin, periodo)
+  const puntos: { clave: FechaISO; etiqueta: string; totalVolumen: number; vaciados: number }[] = []
+  const totalDias = diasEntre(desde, hasta)
+
+  for (let i = 0; i <= totalDias; i++) {
+    const actual = sumarDias(desde, i)
+    const s = resumenSondaDia(sondas, actual)
+    puntos.push({
+      clave: actual,
+      etiqueta: etiquetaEje(actual, periodo),
+      totalVolumen: s.totalVolumen,
+      vaciados: s.vaciados,
     })
   }
   return puntos
@@ -163,7 +192,6 @@ export function compararPeriodos(
     actual,
     anterior,
     cambios: {
-      totalOrina: variacion(actual.totalOrina, anterior.totalOrina),
       promedioPresionSis: variacion(
         actual.promedioPresionSis ?? 0,
         anterior.promedioPresionSis ?? 0,
@@ -186,15 +214,11 @@ export function resumenRango(
 ) {
   const rs = registros.filter((r) => r.fecha >= desde && r.fecha <= hasta)
   const o2 = rs.map((r) => r.o2)
-  const orina = rs
-    .map((r) => r.orina)
-    .filter((n): n is number => typeof n === 'number')
   return {
     desde,
     hasta,
     cantidad: rs.length,
     dias: diasUnicos(registros, desde, hasta),
-    totalOrina: orina.reduce((a, b) => a + b, 0),
     promedioPresionSis: promedio(rs.map((r) => r.presionSis)),
     promedioPresionDia: promedio(rs.map((r) => r.presionDia)),
     promedioO2: promedio(o2),
@@ -213,7 +237,7 @@ function diasUnicos(registros: Registro[], desde: FechaISO, hasta: FechaISO): nu
 
 /**
  * Alertas del dia en curso: valores fuera de umbral y avisos de contexto.
- * `diaCompleto` activa el juicio del volumen de orina diario.
+ * `diaCompleto` activa el aviso de presion media desviada de la habitual.
  */
 export function alertasDelDia(
   registros: Registro[],
@@ -267,25 +291,6 @@ export function alertasDelDia(
         icono: 'corazon',
       })
     }
-  }
-
-  // Volumen de orina acumulado.
-  if (resumen.totalOrina > u.orinaMax) {
-    alertas.push({
-      id: 'orina-alta',
-      nivel: 'aviso',
-      titulo: `Orina alta: ${resumen.totalOrina} ml`,
-      detalle: `Por encima de ${u.orinaMax} ml hoy. Revisa la diuresis.`,
-      icono: 'gota',
-    })
-  } else if (diaCompleto && rs.length > 0 && resumen.totalOrina < u.orinaMin) {
-    alertas.push({
-      id: 'orina-baja',
-      nivel: 'aviso',
-      titulo: `Orina baja: ${resumen.totalOrina} ml`,
-      detalle: `Por debajo de ${u.orinaMin} ml. Considera consultar si continua.`,
-      icono: 'gota',
-    })
   }
 
   // Presion media desviada de la habitual del paciente.

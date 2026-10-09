@@ -49,7 +49,6 @@ interface Estado {
   presionDia: string
   o2: string
   bpm: string
-  orina: string
   notas: string
 }
 
@@ -60,7 +59,6 @@ const vacio = (fecha: string, hora: string): Estado => ({
   presionDia: '',
   o2: '',
   bpm: '',
-  orina: '',
   notas: '',
 })
 
@@ -74,7 +72,6 @@ const aBorrador = (e: Estado): Borrador => ({
   presionDia: e.presionDia === '' ? null : Number(e.presionDia),
   o2: e.o2 === '' ? null : Number(e.o2),
   bpm: e.bpm === '' ? null : Number(e.bpm),
-  orina: e.orina === '' ? null : Number(e.orina),
   notas: e.notas.trim(),
 })
 
@@ -100,7 +97,6 @@ export function FormularioRegistro({ registroEditando, onCancelar }: {
           presionDia: String(registroEditando.presionDia),
           o2: String(registroEditando.o2),
           bpm: String(registroEditando.bpm),
-          orina: registroEditando.orina === null ? '' : String(registroEditando.orina),
           notas: registroEditando.notas,
         }
       : vacio(hoy, claveHora(new Date())),
@@ -141,7 +137,6 @@ export function FormularioRegistro({ registroEditando, onCancelar }: {
       presionDia: true,
       o2: true,
       bpm: true,
-      orina: true,
     })
 
     const borrador = aBorrador(estado)
@@ -161,7 +156,6 @@ export function FormularioRegistro({ registroEditando, onCancelar }: {
       presionDia: Number(borrador.presionDia),
       o2: Number(borrador.o2),
       bpm: Number(borrador.bpm),
-      orina: borrador.orina === null ? null : Number(borrador.orina),
       notas: borrador.notas ?? '',
     }
 
@@ -291,22 +285,6 @@ export function FormularioRegistro({ registroEditando, onCancelar }: {
             {(props) => <CampoNumero {...props} value={estado.bpm} onChange={cambiar('bpm')} />}
           </CampoNumeroConEstado>
         </div>
-
-        <Campo
-          etiqueta="Orina"
-          ayuda="Opcional. Dejalo vacio si no la mediste."
-          error={tocado.orina ? errores.orina : undefined}
-        >
-          <CampoNumero
-            value={estado.orina}
-            onChange={cambiar('orina')}
-            placeholder="0"
-            unidad="ml"
-            min={ajustes.limites.orinaMin}
-            max={ajustes.limites.orinaMax}
-            step={10}
-          />
-        </Campo>
       </Tarjeta>
 
       {/* Notas */}
@@ -521,8 +499,8 @@ export function PlantillasNota({ valor, onChange }: { valor: string; onChange: (
 // ---------------------------------------------------------------------------
 
 /**
- * Version reducida para el dashboard: solo la hora y los cuatro signos, con la
- * orina en un desplegable. Su proposito es permitir un registro en segundos
+ * Version reducida para el dashboard: solo la hora y los cuatro signos, con las
+ * notas en un desplegable. Su proposito es permitir un registro en segundos
  * sin navegar a otra pantalla.
  */
 export function FormularioRapido() {
@@ -532,7 +510,6 @@ export function FormularioRapido() {
   const [abierto, setAbierto] = useState(false)
   const hoy = useHoy()
   const [estado, setEstado] = useState(() => vacio(claveDia(new Date()), claveHora(new Date())))
-  const [verOrina, setVerOrina] = useState(false)
   const [verNotas, setVerNotas] = useState(false)
 
   const errores = validarRegistro(aBorrador(estado), ajustes.limites).errores
@@ -551,7 +528,6 @@ export function FormularioRapido() {
       presionDia: Number(estado.presionDia),
       o2: Number(estado.o2),
       bpm: Number(estado.bpm),
-      orina: estado.orina === '' ? null : Number(estado.orina),
       notas: estado.notas.trim(),
     })
     if (!ok) {
@@ -560,26 +536,25 @@ export function FormularioRapido() {
     }
     aviso('Medicion guardada')
     setEstado(vacio(claveDia(new Date()), claveHora(new Date())))
-    setVerOrina(false)
     setVerNotas(false)
   }
 
   /**
- * Props de un campo controlado del formulario rapido.
- *
- * `T` se fija a `HTMLInputElement` por defecto y se cambia a
- * `HTMLTextAreaElement` en el area de notas, porque el tipo de evento que
- * espera cada componente es distinto y TypeScript no admite asignar un
- * manejador de la union a un manejador de un solo elemento.
- */
+   * Props de un campo controlado del formulario rapido.
+   *
+   * `T` se fija a `HTMLInputElement` por defecto y se cambia a
+   * `HTMLTextAreaElement` en el area de notas, porque el tipo de evento que
+   * espera cada componente es distinto y TypeScript no admite asignar un
+   * manejador de la union a un manejador de un solo elemento.
+   */
   const campo = <T extends HTMLInputElement | HTMLTextAreaElement = HTMLInputElement>(
     nombre: keyof Estado,
   ): { value: string; onChange: (e: ChangeEvent<T, T>) => void } => ({
-    value: estado[nombre],
+    value: estado[nombre] ?? '',
     onChange: (e) => setEstado((p) => ({ ...p, [nombre]: e.target.value })),
   })
 
-/**
+  /**
    * Borde del campo segun el valor tecleado.
    *
    * Toma los limites de Ajustes en vez de valores fijos: antes el formulario
@@ -672,13 +647,6 @@ export function FormularioRapido() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setVerOrina((v) => !v)}
-              className="min-h-9 rounded-lg bg-superficie-3 px-3 text-xs font-medium text-texto-suave"
-            >
-              {verOrina ? 'Ocultar' : '+'} Orina
-            </button>
-            <button
-              type="button"
               onClick={() => setVerNotas((v) => !v)}
               className="min-h-9 rounded-lg bg-superficie-3 px-3 text-xs font-medium text-texto-suave"
             >
@@ -686,18 +654,6 @@ export function FormularioRapido() {
             </button>
           </div>
 
-          {verOrina && (
-            <Campo etiqueta="Orina" ayuda="Opcional">
-              <CampoNumero
-                {...campo('orina')}
-                placeholder="0"
-                unidad="ml"
-                step={10}
-                max={ajustes.limites.orinaMax}
-                aria-label="Orina en mililitros"
-              />
-            </Campo>
-          )}
           {verNotas && <AreaTexto {...campo<HTMLTextAreaElement>('notas')} rows={2} placeholder="Notas..." aria-label="Notas" />}
 
           <Boton
