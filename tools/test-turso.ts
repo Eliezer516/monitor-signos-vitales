@@ -17,7 +17,7 @@
 
 import { createClient } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { readFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -68,7 +68,11 @@ const reg = (
 
 console.log('1. La migracion aplica sobre una base vacia')
 {
-  for (const migracion of ['0000_unique_vermin.sql', '0001_handy_silhouette.sql']) {
+  for (const migracion of [
+    '0000_unique_vermin.sql',
+    '0001_handy_silhouette.sql',
+    '0002_sweet_nemesis.sql',
+  ]) {
     const sqlTexto = readFileSync(new URL(`../drizzle/${migracion}`, import.meta.url), 'utf8')
     try {
       aplicarMigracion(sqlTexto)
@@ -100,7 +104,23 @@ console.log('2. Un paciente y sus registros')
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-01T08:00:00.000Z',
   })
-  ok('se guarda y se lee', (await db.select().from(schema.pacientes)).length === 1)
+  const pacientesLeidos = await db.select().from(schema.pacientes)
+  ok('se guarda y se lee', pacientesLeidos.length === 1)
+  // La sonda es por ficha y esta activa por defecto (migracion 0002): un
+  // paciente antiguo sin el campo se lee como que si la lleva.
+  ok(
+    'la sonda se activa por defecto',
+    pacientesLeidos[0].sonda === true,
+    String(pacientesLeidos[0].sonda),
+  )
+
+  // Y se puede desactivar por ficha: la columna guarda el false y lo devuelve.
+  await db.update(schema.pacientes).set({ sonda: false }).where(eq(schema.pacientes.id, 'p1'))
+  ok(
+    'la sonda desactivada se lee como tal',
+    (await db.select().from(schema.pacientes))[0].sonda === false,
+  )
+  await db.update(schema.pacientes).set({ sonda: true }).where(eq(schema.pacientes.id, 'p1'))
 
   await db.insert(schema.registros).values(reg('r1', '2026-10-01', '2026-10-01T09:00:00.000Z'))
   const leidos = await db.select().from(schema.registros)

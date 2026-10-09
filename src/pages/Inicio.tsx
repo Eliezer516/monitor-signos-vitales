@@ -48,8 +48,11 @@ export function PaginaInicio({ onIrRegistrar }: { onIrRegistrar: () => void }) {
     () => resumenSondaDia(sondas, diaSeleccionado),
     [sondas, diaSeleccionado],
   )
-  const esHoy = diaSeleccionado === hoy
+const esHoy = diaSeleccionado === hoy
   const nivel = nivelDia(resumen, ajustes.umbral, presionHabitual)
+  // El paciente sin sonda no anota vaciados: sin esta guarda, la tarjeta de
+  // "Sonda total" y el formulario saldrian vacios para alguien que no la lleva.
+  const sondaActiva = paciente?.sonda ?? true
   const alertas = useMemo(
     () => alertasDelDia(registros, diaSeleccionado, ajustes.umbral, !esHoy, presionHabitual),
     [registros, diaSeleccionado, ajustes.umbral, esHoy, presionHabitual],
@@ -128,21 +131,23 @@ return (
 
         {/* Metricas del dia. La sonda va primera: es el dato que mas se mira. */}
         <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-          <TarjetaMetrica
-            principal
-            etiqueta="Sonda total"
-            valor={String(resumenSonda.totalVolumen)}
-            unidad="ml"
-            icono={<IconoGota width={16} height={16} />}
-            // El volumen alto exige atencion; a media manana es normal no haber
-            // vaciado aun, por eso el volumen bajo no se marca en el dia en curso.
-            nivel={resumenSonda.totalVolumen > ajustes.umbral.sondaMax ? 'aviso' : 'ok'}
-            detalle={
-              resumenSonda.vaciados === 0
-                ? 'Sin vaciados'
-                : `${resumenSonda.vaciados} ${resumenSonda.vaciados === 1 ? 'vaciado' : 'vaciados'}`
-            }
-          />
+          {sondaActiva && (
+            <TarjetaMetrica
+              principal
+              etiqueta="Sonda total"
+              valor={String(resumenSonda.totalVolumen)}
+              unidad="ml"
+              icono={<IconoGota width={16} height={16} />}
+              // El volumen alto exige atencion; a media manana es normal no haber
+              // vaciado aun, por eso el volumen bajo no se marca en el dia en curso.
+              nivel={resumenSonda.totalVolumen > ajustes.umbral.sondaMax ? 'aviso' : 'ok'}
+              detalle={
+                resumenSonda.vaciados === 0
+                  ? 'Sin vaciados'
+                  : `${resumenSonda.vaciados} ${resumenSonda.vaciados === 1 ? 'vaciado' : 'vaciados'}`
+              }
+            />
+          )}
           <TarjetaMetrica
             etiqueta="Presion media"
             valor={
@@ -182,7 +187,7 @@ evaluarSis(resumen.promedioPresionSis, ajustes.umbral, presionHabitual),
       <FormularioRapido />
 
       {/* Vaciado de la sonda: entidad aparte, se anota cuando toca */}
-      <FormularioSonda />
+      {sondaActiva && <FormularioSonda />}
 
       {/* Ultimas 24 horas */}
       <Tarjeta className="space-y-3">

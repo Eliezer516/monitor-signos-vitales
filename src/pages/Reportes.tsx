@@ -92,6 +92,11 @@ const registrosPeriodo = useMemo(
     [sondas, desde, hasta],
   )
 
+  // Sin sonda no se pinta su seccion en el informe generado: pasarla como
+  // lista vacia diria "Total drenado: 0 ml", que es el dato que no procede.
+  const sondaActiva = paciente?.sonda ?? true
+  const sondasParaReporte = sondaActiva ? sondasPeriodo : undefined
+
 // Se sale solo si no hay nada de nada: tener visitas pero no mediciones tambien
   // permite generar informe, y es el caso tipico cuando se ajusta el tratamiento.
   if (!registros.length && !visitas.length) {
@@ -118,7 +123,7 @@ const html = reporteHTML(registrosPeriodo, {
       umbral: ajustes.umbral,
       presionHabitual,
       visitas: visitasPeriodo,
-      sondas: sondasPeriodo,
+      sondas: sondasParaReporte,
     })
     if (!imprimirReporte(html)) {
       aviso('El navegador bloqueo la ventana de impresion', 'error')
@@ -139,7 +144,7 @@ const compartir = async () => {
       umbral: ajustes.umbral,
       presionHabitual,
       visitas: visitasPeriodo,
-      sondas: sondasPeriodo,
+      sondas: sondasParaReporte,
     })
     const resultado = await compartirReporte(html, `reporte-${desde}-${hasta}`)
     if (resultado === 'no-soportado') {
@@ -223,7 +228,9 @@ const compartir = async () => {
           umbral={ajustes.umbral}
         />
       )}
-      {vista === 'semanal' && <ReporteSemanal dia={dia} umbral={ajustes.umbral} />}
+      {vista === 'semanal' && (
+        <ReporteSemanal dia={dia} umbral={ajustes.umbral} sondaActiva={sondaActiva} />
+      )}
       {vista === 'comparativa' && <ReporteComparativo periodo={periodo} umbral={ajustes.umbral} />}
     </div>
   )
@@ -327,7 +334,15 @@ function ReporteDiario({
 // Reporte semanal
 // ---------------------------------------------------------------------------
 
-function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
+function ReporteSemanal({
+  dia,
+  umbral,
+  sondaActiva,
+}: {
+  dia: string
+  umbral: Umbrales
+  sondaActiva: boolean
+}) {
   const { registros } = useRegistros()
   const { visitas } = useVisitas()
   const { sondas } = useSondas()
@@ -367,9 +382,11 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
         </div>
 
 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Metrica etiqueta="Sonda total" valor={String(totalSonda)} unidad="ml" />
+          {sondaActiva && <Metrica etiqueta="Sonda total" valor={String(totalSonda)} unidad="ml" />}
           <Metrica etiqueta="Dias con datos" valor={String(diasConDatos.length)} unidad="de 7" />
-          <Metrica etiqueta="Media diaria" valor={mediaDiaria ? String(mediaDiaria) : '-'} unidad="ml/dia" />
+          {sondaActiva && (
+            <Metrica etiqueta="Media diaria" valor={mediaDiaria ? String(mediaDiaria) : '-'} unidad="ml/dia" />
+          )}
           <Metrica etiqueta="O2 mas bajo" valor={n(minO2)} unidad="%" />
         </div>
       </Tarjeta>
@@ -382,7 +399,7 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
               <tr className="border-b border-borde text-left text-xs text-texto-suave">
 <th className="py-2 pr-2 font-medium">Dia</th>
                 <th className="py-2 pr-2 font-medium">Tomas</th>
-                <th className="py-2 pr-2 font-medium">Sonda</th>
+                {sondaActiva && <th className="py-2 pr-2 font-medium">Sonda</th>}
                 <th className="py-2 pr-2 font-medium">Presion</th>
                 <th className="py-2 pr-2 font-medium">O2</th>
                 <th className="py-2 pr-2 font-medium">Pulso</th>
@@ -399,14 +416,16 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
                 >
                   <td className="py-2.5 pr-2 font-medium">{fechaCorta(d.fecha).slice(0, 6)}</td>
 <td className="py-2.5 pr-2 tabular-nums">
-                    {d.registros.length || '-'}
-                  </td>
-                  <td className="py-2.5 pr-2 tabular-nums">
-                    {(() => {
-                      const t = resumenSondaDia(sondas, d.fecha).totalVolumen
-                      return t > 0 ? `${t} ml` : '-'
-                    })()}
-                  </td>
+                  {d.registros.length || '-'}
+                </td>
+                  {sondaActiva && (
+                    <td className="py-2.5 pr-2 tabular-nums">
+                      {(() => {
+                        const t = resumenSondaDia(sondas, d.fecha).totalVolumen
+                        return t > 0 ? `${t} ml` : '-'
+                      })()}
+                    </td>
+                  )}
                   <td className="py-2.5 pr-2 tabular-nums">
                     {d.promedioPresionSis === null
                       ? '-'
@@ -479,7 +498,7 @@ function ReporteSemanal({ dia, umbral }: { dia: string; umbral: Umbrales }) {
         )}
       </Tarjeta>
 
-{mediaDiaria > 0 && mediaDiaria < umbral.sondaMin && (
+{sondaActiva && mediaDiaria > 0 && mediaDiaria < umbral.sondaMin && (
         <Tarjeta className="flex items-start gap-2.5 border-aviso/30 bg-aviso-suave">
           <span className="shrink-0 text-aviso">
             <IconoAlerta width={20} height={20} />

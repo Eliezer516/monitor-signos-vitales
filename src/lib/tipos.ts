@@ -168,6 +168,16 @@ export interface Paciente extends Sincronizable {
    * Ajustes, para no tener que repetirla en cada ficha.
    */
   presionHabitual?: PresionHabitual
+  /**
+   * Si este paciente lleva sonda. Los pacientes sin sonda no anotan vaciados:
+   * la caracteristica entera (formulario, metricas, grafica y seccion del
+   * reporte) se oculta. Es propia de la ficha y no de la app, porque unos
+   * pacientes la necesitan y otros no.
+   *
+   * Ausente en datos antiguos: en ese caso se considera activa. `normalizarPaciente`
+   * y `filaAPaciente` lo rellenan con `true`.
+   */
+  sonda?: boolean
 }
 
 /** Donde se produjo el encuentro con el profesional sanitario. */

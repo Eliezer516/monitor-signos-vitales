@@ -1,0 +1,1 @@
+ALTER TABLE `pacientes` ADD `sonda` integer DEFAULT true NOT NULL;

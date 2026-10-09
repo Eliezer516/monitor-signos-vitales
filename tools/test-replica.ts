@@ -53,6 +53,8 @@ const ajustes: AjustesCompartidos = {
 const paciente = (id: string, nombre: string, updatedAt: string): Paciente => ({
   id,
   nombre,
+  // La ficha nueva trae la sonda activa: es como nace en `pacienteACrear`.
+  sonda: true,
   createdAt: updatedAt,
   updatedAt,
 })
@@ -117,9 +119,14 @@ const db = drizzle(cliente, { schema })
  * es la que se despliega, y pasaria sin avisar.
  */
 {
-  // Se aplican las dos migraciones: la base de 0000 y la de la sonda (0001),
-  // que ademas quita la columna `orina` de `registros`.
-  for (const migracion of ['0000_unique_vermin.sql', '0001_handy_silhouette.sql']) {
+  // Se aplican las migraciones en orden: la base de 0000, la de la sonda (0001),
+  // que ademas quita la columna `orina` de `registros`, y la de la sonda por
+  // ficha (0002), que anade la preferencia `sonda` a `pacientes`.
+  for (const migracion of [
+    '0000_unique_vermin.sql',
+    '0001_handy_silhouette.sql',
+    '0002_sweet_nemesis.sql',
+  ]) {
     const sqlTexto = readFileSync(new URL(`../drizzle/${migracion}`, import.meta.url), 'utf8')
     for (const bloque of sqlTexto.split('--> statement-breakpoint')) {
       const sentencia = bloque.trim()
@@ -167,6 +174,26 @@ console.log('1. El primer ciclo crea la ficha y sube las mediciones')
   )
   ok('la visita tambien', filas.visitas[0]?.pacienteId === filas.pacientes[0]?.id)
   ok('guarda los ajustes compartidos', filas.ajustes.length === 1)
+}
+
+console.log('1b. La sonda viaja por ficha, activa por defecto y apagable')
+{
+  const creada = await pacienteEnBase()
+  ok('la ficha creada trae la sonda activa', creada.sonda === true, String(creada.sonda))
+
+  // En el movil se desactiva y el proximo ciclo la sube.
+  await sincronizar(
+    dispositivo({
+      pacientes: [{ ...creada, sonda: false, updatedAt: new Date().toISOString() }],
+      pacienteActivo: creada.id,
+    }),
+    db,
+  )
+  ok(
+    'la sonda desactivada llega a la base de verdad',
+    (await pacienteEnBase()).sonda === false,
+    String((await pacienteEnBase()).sonda),
+  )
 }
 
 console.log('2. Un segundo ciclo con la ficha ya creada no inventa otra')

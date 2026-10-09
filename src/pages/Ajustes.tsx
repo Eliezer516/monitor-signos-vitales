@@ -139,6 +139,14 @@ function SeccionPaciente() {
           </div>
           {paciente.notas && <p className="text-sm text-texto-suave">{paciente.notas}</p>}
 
+          {/* Solo se avisa de lo apagado: es la unica situacion que puede
+              confundir, porque el formulario de vaciado ha desaparecido. */}
+          {paciente.sonda === false && (
+            <p className="text-xs text-texto-suave">
+              Sin sonda: el registro de vaciados esta oculto.
+            </p>
+          )}
+
           <div className="grid grid-cols-2 gap-2.5">
             <Boton variante="secundario" onClick={() => setEditando(true)}>
               Editar
@@ -209,6 +217,9 @@ function FormularioPaciente({ onCancelar }: { onCancelar?: () => void }) {
   const [habitual, setHabitual] = useState<PresionHabitual>(
     paciente?.presionHabitual ?? ajustes.presionHabitual,
   )
+  // Los pacientes sin sonda no anotan vaciados: la ficha dice si lleva sonda o
+  // no, y de eso depende que la caracteristica este visible en toda la app.
+  const [sonda, setSonda] = useState(paciente?.sonda ?? true)
   // El selector de fecha nativo usa `AAAA-MM-DD` en hora local, no UTC.
   const hoy = useHoy()
 
@@ -227,6 +238,7 @@ function FormularioPaciente({ onCancelar }: { onCancelar?: () => void }) {
       nacimiento: nacimiento || undefined,
       notas: notas.trim() || undefined,
       presionHabitual: habitualPropio ? habitual : undefined,
+      sonda,
     })
     aviso(paciente ? 'Paciente actualizado' : 'Paciente anadido')
     onCancelar?.()
@@ -266,6 +278,19 @@ function FormularioPaciente({ onCancelar }: { onCancelar?: () => void }) {
             <EditorPresionHabitual valor={habitual} onChange={setHabitual} />
           </div>
         )}
+      </div>
+
+      <div className="rounded-xl border border-borde p-3">
+        <Interruptor
+          activo={sonda}
+          onChange={setSonda}
+          etiqueta="Registrar vaciados de la sonda"
+          descripcion={
+            sonda
+              ? 'Se anota el volumen de la bolsa y aparece en las metricas, las graficas y los reportes.'
+              : 'Este paciente no lleva sonda: el formulario de vaciado y sus datos quedan ocultos.'
+          }
+        />
       </div>
 
       <Campo etiqueta="Notas para el medico" ayuda="Alergias, diagnostico, tratamiento...">

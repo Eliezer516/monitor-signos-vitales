@@ -57,6 +57,11 @@ export const pacientes = sqliteTable(
      */
     presionHabitual: text('presion_habitual', { mode: 'json' })
       .$type<PresionHabitual | null>(),
+    /**
+     * Si esta persona lleva sonda. Sin ella, la app entera oculta el registro de
+     * vaciados: cada ficha tiene la suya, igual que con `presionHabitual`.
+     */
+    sonda: integer('sonda', { mode: 'boolean' }).notNull().default(true),
     createdAt: iso('created_at').notNull(),
     updatedAt: iso('updated_at').notNull(),
   },

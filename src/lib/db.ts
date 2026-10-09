@@ -404,7 +404,13 @@ export async function guardarPacientes(pacientes: Paciente[]): Promise<void> {
  */
 export function normalizarPaciente(p: Paciente): Paciente {
   const { creadoAt, ...resto } = p as Paciente & { creadoAt?: string }
-  return { ...resto, createdAt: p.createdAt ?? creadoAt ?? '1970-01-01T00:00:00.000Z' }
+  return {
+    ...resto,
+    createdAt: p.createdAt ?? creadoAt ?? '1970-01-01T00:00:00.000Z',
+    // Sin el campo (datos anteriores a esta version) la sonda se considera
+    // activa: es la opcion que no hace desaparecer una seccion que ya se usaba.
+    sonda: p.sonda ?? true,
+  }
 }
 
 /**

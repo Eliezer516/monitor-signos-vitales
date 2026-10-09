@@ -111,6 +111,10 @@ ok('un backup v1 no inventa ajustes', leido.ajustes === null)
 ok('un backup v1 no inventa marcas de ajustes', Object.keys(leido.marcas).length === 0)
 // `creadoAt` era el nombre antiguo; se traduce a `createdAt` al leer.
 ok('traduce creadoAt a createdAt', leido.pacientes[0]?.createdAt === '2026-01-01')
+// Un paciente de un backup anterior no trae la clave `sonda`: al leerla se
+// normaliza como activa, que es la opcion que no oculta nada de lo que ya
+// habia. No debe quedarse `undefined`, o la interfaz decidiria "no existe".
+ok('un paciente antiguo queda con sonda activa por defecto', leido.pacientes[0]?.sonda === true)
 
 console.log('5b. Backup v3: marcas, borrados y ajustes')
 const v3 = JSON.stringify({
@@ -221,6 +225,21 @@ ok('el informe escapa el HTML de los textos', !reporteHTML([], {
   umbral: UMBRALES_POR_DEFECTO,
   visitas: [{ ...visitaBuena, fecha: '2026-09-28', motivo: '<script>alerta(1)</script>' }],
 }).includes('<script>'))
+
+// Un paciente sin sonda no debe sacar la seccion de vaciados: sin este filtro,
+// el informe diria "Total drenado: 0 ml", que es el dato que no corresponde.
+const sondaValida = { id: 's1', fecha: '2026-09-28', hora: '10:00', volumen: 350, notas: '', createdAt: '2026-09-28T10:00:00.000Z', updatedAt: '2026-09-28T10:00:00.000Z' }
+ok('sin datos de sonda el informe no pinta la seccion', !reporteHTML([], {
+  desde: '2026-09-01', hasta: '2026-09-30', umbral: UMBRALES_POR_DEFECTO,
+}).includes('Vaciados de la sonda'))
+ok('con datos de sonda el informe si pinta la seccion', reporteHTML([], {
+  desde: '2026-09-01', hasta: '2026-09-30', umbral: UMBRALES_POR_DEFECTO,
+  sondas: [sondaValida],
+}).includes('Vaciados de la sonda'))
+ok('con datos de sonda el informe suma el total drenado', reporteHTML([], {
+  desde: '2026-09-01', hasta: '2026-09-30', umbral: UMBRALES_POR_DEFECTO,
+  sondas: [sondaValida, { ...sondaValida, id: 's2', hora: '14:00', volumen: 150 }],
+}).includes('Total drenado en el periodo: <strong>500 ml</strong>'))
 
 console.log('7. Hora en 12 horas')
 ok('medianoche es 12 AM, no 0', hora12('00:00') === '12:00 AM')

@@ -40,10 +40,15 @@ const PERIODOS: { valor: Periodo; etiqueta: string }[] = [
 export function PaginaGraficas() {
   const { registros } = useRegistros()
   const { sondas } = useSondas()
-  const { ajustes, presionHabitual } = useAjustes()
+  const { ajustes, paciente, presionHabitual } = useAjustes()
   const [periodo, setPeriodo] = useState<Periodo>('semana')
   const hoy = useHoy()
   const [fin, setFin] = useState(() => claveDia(new Date()))
+
+  // Un paciente sin sonda no tiene vaciados que graficar: se oculta la grafica
+  // de barras y la del dia, pero se siguen leyendo los datos por si vuelve a
+  // activarse.
+  const sondaActiva = paciente?.sonda ?? true
 
   // Para "Dia" se usan las mediciones individuales; para el resto, promedios.
   const registrosDelDia = useMemo(
@@ -117,7 +122,7 @@ export function PaginaGraficas() {
         <div className="space-y-4">
           <GraficaPresion serie={serie!} umbral={ajustes.umbral} periodo={periodo} habitual={presionHabitual} />
           <GraficaO2Pulso serie={serie!} umbral={ajustes.umbral} />
-          <GraficaSonda serie={serieSonda!} umbral={ajustes.umbral} />
+          {sondaActiva && <GraficaSonda serie={serieSonda!} umbral={ajustes.umbral} />}
         </div>
       )}
     </div>
@@ -307,7 +312,8 @@ function GraficasDelDia({
   registros: Registro[]
   sondas: Sonda[]
 }) {
-  const { ajustes } = useAjustes()
+  const { ajustes, paciente } = useAjustes()
+  const sondaActiva = paciente?.sonda ?? true
 
   if (!registros.length) {
     return (
@@ -392,31 +398,33 @@ function GraficasDelDia({
         />
       </Tarjeta>
 
-      <Tarjeta className="space-y-3">
-        <div>
-          <h2 className="text-base font-semibold text-texto">Sonda del dia</h2>
-          <p className="text-xs text-texto-suave">
-            Total drenado: {sondas.reduce((a, s) => a + s.volumen, 0)} ml ·{' '}
-            {sondas.length} {sondas.length === 1 ? 'vaciado' : 'vaciados'}
-          </p>
-        </div>
-        {sondas.length === 0 ? (
-          <p className="py-4 text-center text-sm text-texto-suave">
-            Sin vaciados registrados este dia
-          </p>
-        ) : (
-          <GraficaBarras
-            barras={sondas.map((s) => ({
-              clave: s.id,
-              etiqueta: hora12(s.hora),
-              valor: s.volumen,
-            }))}
-            formatoValor={(v) => `${Math.round(v)} ml`}
-            alto={190}
-            vacio="Sin vaciados registrados este dia"
-          />
-        )}
-      </Tarjeta>
+      {sondaActiva && (
+        <Tarjeta className="space-y-3">
+          <div>
+            <h2 className="text-base font-semibold text-texto">Sonda del dia</h2>
+            <p className="text-xs text-texto-suave">
+              Total drenado: {sondas.reduce((a, s) => a + s.volumen, 0)} ml ·{' '}
+              {sondas.length} {sondas.length === 1 ? 'vaciado' : 'vaciados'}
+            </p>
+          </div>
+          {sondas.length === 0 ? (
+            <p className="py-4 text-center text-sm text-texto-suave">
+              Sin vaciados registrados este dia
+            </p>
+          ) : (
+            <GraficaBarras
+              barras={sondas.map((s) => ({
+                clave: s.id,
+                etiqueta: hora12(s.hora),
+                valor: s.volumen,
+              }))}
+              formatoValor={(v) => `${Math.round(v)} ml`}
+              alto={190}
+              vacio="Sin vaciados registrados este dia"
+            />
+          )}
+        </Tarjeta>
+      )}
     </div>
   )
 }

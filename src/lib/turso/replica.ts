@@ -45,6 +45,7 @@ import {
   filaAVisita,
   leerReparto,
   pacienteACrear,
+  pacienteAFila,
   registroAFila,
   repartir,
   sondaAFila,
@@ -256,15 +257,7 @@ async function escribir(db: Base, paquete: Backup, reparto: Reparto) {
   const s = repartir(lasSondas, reparto.sondas, validos, destino)
 
   if (paquete.pacientes.length > 0) {
-    const filas = paquete.pacientes.map((p) => ({
-      id: p.id,
-      nombre: p.nombre,
-      nacimiento: p.nacimiento ?? null,
-      notas: p.notas ?? null,
-      presionHabitual: p.presionHabitual ?? null,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt ?? p.createdAt,
-    }))
+    const filas = paquete.pacientes.map(pacienteAFila)
     await db
       .insert(pacientes)
       .values(filas)

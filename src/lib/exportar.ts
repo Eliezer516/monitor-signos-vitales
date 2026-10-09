@@ -576,7 +576,11 @@ export function reporteHTML(
     sondas?: Sonda[]
   },
 ): string {
-  const { paciente, desde, hasta, umbral, presionHabitual, visitas = [], sondas = [] } = opciones
+  const { paciente, desde, hasta, umbral, presionHabitual, visitas = [], sondas } = opciones
+  // La seccion de la sonda solo se pinta cuando el periodo de verdad la lleva:
+  // si se pasase una lista vacia, el informe de un paciente sin sonda diria
+  // "Total drenado: 0 ml", que es justo el dato que no corresponde.
+  const conSonda = sondas !== undefined
   const dias = [...new Set(registros.map((r) => r.fecha))].sort()
   const esc = (s: unknown) =>
     String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
@@ -630,7 +634,7 @@ export function reporteHTML(
   // Los vaciados de la sonda del periodo, con el total drenado. Es el dato que
   // permite juzgar la funcion renal sin tener que reconstruir la serie de
   // mediciones: si el total baja, algo pasa.
-  const sondasPeriodo = sondas
+  const sondasPeriodo = (sondas ?? [])
     .filter((s) => s.fecha >= desde && s.fecha <= hasta)
     .sort((a, b) => (a.fecha === b.fecha ? a.hora.localeCompare(b.hora) : a.fecha.localeCompare(b.fecha)))
 
@@ -697,6 +701,7 @@ export function reporteHTML(
     <tbody>${filas || '<tr><td colspan="6">Sin registros en el periodo</td></tr>'}</tbody>
   </table>
 
+${conSonda ? `
   <h2>Vaciados de la sonda</h2>
   <table>
     <thead><tr>
@@ -704,7 +709,7 @@ export function reporteHTML(
     </tr></thead>
     <tbody>${sondaFilas || '<tr><td colspan="4">Sin vaciados en el periodo</td></tr>'}</tbody>
   </table>
-  <p class="sub">Total drenado en el periodo: <strong>${totalSonda} ml</strong></p>
+  <p class="sub">Total drenado en el periodo: <strong>${totalSonda} ml</strong></p>` : ''}
 
   <h2>Visitas medicas y a domicilio</h2>
   <table>

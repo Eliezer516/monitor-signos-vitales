@@ -247,6 +247,7 @@ export function pacienteAFila(p: Paciente): typeof pacientes.$inferInsert {
     nacimiento: p.nacimiento ?? null,
     notas: p.notas ?? null,
     presionHabitual: p.presionHabitual ?? null,
+    sonda: p.sonda ?? true,
     createdAt: p.createdAt,
     updatedAt: marca(p),
   }
@@ -259,6 +260,7 @@ export function filaAPaciente(f: FilaPaciente): Paciente {
     nacimiento: f.nacimiento ?? undefined,
     notas: f.notas ?? undefined,
     presionHabitual: f.presionHabitual ?? undefined,
+    sonda: f.sonda ?? true,
     createdAt: f.createdAt,
     updatedAt: f.updatedAt,
   }
@@ -288,6 +290,7 @@ export function pacienteACrear(
     // que las mediciones de ese telefono sigan bajo la misma ficha.
     id: pacienteActivo ?? nuevoId(),
     nombre: NOMBRE_POR_DEFECTO,
+    sonda: true,
     createdAt: ahora,
     updatedAt: ahora,
   }
